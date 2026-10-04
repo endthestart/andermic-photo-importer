@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: Build and test (${{ matrix.architecture }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            architecture: arm64
+          - runner: macos-15-intel
+            architecture: x86_64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+      HOMEBREW_NO_ENV_HINTS: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify runner architecture
+        env:
+          EXPECTED_ARCH: ${{ matrix.architecture }}
+        run: test "$(uname -m)" = "$EXPECTED_ARCH"
+      - name: Install metadata dependency
+        run: |
+          brew install exiftool
+          exiftool -ver
+          xcrun swift --version
+      - name: Test importer safety
+        run: ./test.sh
+      - name: Build app and icon
+        run: ./build.sh
+      - name: Package and verify archive
+        run: |
+          ./scripts/package.sh
+          ./scripts/verify-package.sh
+      - name: Upload development build
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: development-build-${{ matrix.architecture }}
+          path: |
+            dist/*.zip
+            dist/*.sha256
+          if-no-files-found: error
+          retention-days: 7

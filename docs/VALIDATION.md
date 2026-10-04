@@ -1,0 +1,13 @@
+# Validation
+
+The initial prototype passed 32 synthetic safety checks and a full native GUI import/repeat scan on an Apple silicon Mac with macOS 27.2 and ExifTool 13.55. The GUI imported one new dated image, skipped a renamed original in a different event folder, produced matching SHA-256 values and a completed report, then found zero new files on the repeat scan. The mounted Nikon card was detected, but real photos were not imported or ejected.
+
+Tests exercise actual EXIF dates in generated JPEGs, multi-day organization, calendar validation, duplicate detection across renamed files and events, repeat imports, collisions, explicit fallback dates, source mutation, cancellation, concurrent locking, vanished duplicates, path/symlink protection, failure handling, and final destination tampering. NEF/GPR fixtures are synthetic byte containers used with explicit fallback dates; they do not establish actual-camera metadata support.
+
+The repository foundation changes branding, bundles the accepted icon, adds build/version/package checks, and adds GitHub CI and draft-release workflows. The updated importer passed 39 checks locally, including native date extraction, full ExifTool fallback, bounded preview reads, deliberate sample collisions, unsampled source changes, and large renamed duplicates. The Apple silicon app and packaged archive are checked for checksum, signature, architecture, icon, bundle identity, and version. Shell syntax and workflow YAML checks passed.
+
+The synthetic preview workload uses twelve 16 MiB JPEG containers and twelve unrelated same-size destination files (384 MiB total). Duplicate checking sampled 2.25 MiB and fully hashed zero bytes, reducing duplicate-check read volume by over 99%. Native metadata header reads are separate from that measurement. Preview took approximately 0.012 seconds locally with recently generated fixtures in the OS cache; this is not a real-card benchmark or a general timing promise. True matches and deliberate sample collisions still require full reads.
+
+Hosted build results are available in [GitHub Actions](https://github.com/endthestart/andermic-photo-importer/actions). Both architectures must pass before a tagged build can create a draft release. Drafts remain unpublished and use development signing until Apple distribution credentials are configured.
+
+Pending live checks: real camera metadata, actual Photography-volume copies, card eject, DxO folder handoff, supported earlier macOS versions, metadata-edit duplicate identity, and large-library performance. Apple distribution signing/notarization is not configured yet.

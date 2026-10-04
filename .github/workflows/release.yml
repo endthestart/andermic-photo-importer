@@ -1,0 +1,107 @@
+name: Draft release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Release build (${{ matrix.architecture }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            architecture: arm64
+          - runner: macos-15-intel
+            architecture: x86_64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+      HOMEBREW_NO_ENV_HINTS: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate release version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          EXPECTED_ARCH: ${{ matrix.architecture }}
+        run: |
+          test "$(uname -m)" = "$EXPECTED_ARCH"
+          version="${RELEASE_TAG#v}"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]]
+          test "${version%%-*}" = "$(cat VERSION)"
+          echo "APP_VERSION=$version" >> "$GITHUB_ENV"
+          echo "BUILD_NUMBER=$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
+      - name: Install metadata dependency
+        run: brew install exiftool
+      - name: Test importer safety
+        run: ./test.sh
+      - name: Build development-signed app
+        run: ./build.sh
+      - name: Package and verify archive
+        run: |
+          ./scripts/package.sh
+          ./scripts/verify-package.sh
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-${{ matrix.architecture }}
+          path: |
+            dist/*.zip
+            dist/*.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  draft:
+    name: Create reviewable draft prerelease
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: release-*
+          path: artifacts
+          merge-multiple: true
+      - name: Verify checksums
+        working-directory: artifacts
+        run: sha256sum --check ./*.sha256
+      - name: Write release notes
+        run: |
+          cat > release-notes.md <<'NOTES'
+          Development preview of Andermic Photo Importer. The importer copies new originals into configurable date/event folders, checks duplicates by content, and verifies completed copies.
+
+          These builds are locally/ad hoc signed, not Developer ID signed or Apple notarized. This draft is for review and testing; it is not a public-ready distribution release.
+
+          - `arm64`: Apple silicon Macs.
+          - `x86_64`: Intel Macs.
+          - ExifTool is required separately; install its official macOS package or use `brew install exiftool`.
+          - Real camera metadata, Photography-volume copies, physical-card ejection, and DxO handoff still need live qualification.
+          - Embedded metadata edits can affect the current whole-file duplicate matching.
+
+          Source: the tagged commit. SHA-256 checksum files accompany both builds. See docs/RELEASE.md for the signing and public-release checklist.
+          NOTES
+      - name: Create or update draft assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft > is-draft.txt 2>/dev/null; then
+            test "$(cat is-draft.txt)" = true
+            gh release upload "$RELEASE_TAG" artifacts/* --clobber
+          else
+            gh release create "$RELEASE_TAG" artifacts/* --verify-tag --draft --prerelease \
+              --title "Andermic Photo Importer $RELEASE_TAG — development preview" --notes-file release-notes.md
+          fi
