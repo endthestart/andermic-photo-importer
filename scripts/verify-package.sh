@@ -15,6 +15,8 @@ app="$(pwd)/$verification/Andermic Photo Importer.app"
 test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" = net.andermic.photoimporter
 test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")" = "${version%%-*}"
 test -s "$app/Contents/Resources/AppIcon.icns"
+cmp LICENSE "$app/Contents/Resources/LICENSE.txt"
+cmp THIRD_PARTY.md "$app/Contents/Resources/THIRD_PARTY.md"
 test "$(xcrun lipo -archs "$app/Contents/MacOS/PhotoImport")" = "$architecture"
 
 # Bundled metadata helper: pinned versions, licenses, architecture, signatures, and system-only linkage.

@@ -87,3 +87,11 @@ The new tests reproduce both on the previous engine. The root-level import was r
 The initial prototype passed 32 synthetic safety checks and a full native GUI import/repeat scan on an Apple silicon Mac with macOS 27.2 and Homebrew ExifTool 13.55. The repository foundation passed 39 checks, including bounded preview reads, deliberate sample collisions, unsampled source changes, and large renamed duplicates. A mounted Nikon card was detected, but real photos were neither imported nor ejected.
 
 Hosted build results are in [GitHub Actions](https://github.com/endthestart/andermic-photo-importer/actions). Both architectures must pass before a tagged build can create a draft release.
+
+## Source preview preparation (2026-10-05)
+
+The owner approved a MIT-licensed source-only preview and deferred Apple Developer Program enrollment (ADR-0006). The current local pipeline passes 118 synthetic safety checks, builds the arm64 app, packages it, and verifies the extracted bundle. Package verification now also compares the app’s MIT license and third-party summary against the repository files. Both workflow files parse as YAML and changed shell scripts pass syntax checks.
+
+An inspection of 149 Git objects, including historical text blobs, found no candidate private-key, GitHub-token, API-key, or absolute-home-path matches. The main screenshot was visually checked and contains synthetic images. This bounded inspection is not a guarantee that every possible secret pattern is detected. No personal photo library, real-card import, or ejection was used for this preparation. Existing user settings were read for configuration presence and left unchanged.
+
+The first local icon-generation attempt failed inside the execution sandbox. The normal build succeeded when run with macOS system access; no app code was changed for that environment restriction. Source previews do not claim to close the live qualification items above.

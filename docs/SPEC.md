@@ -1,6 +1,6 @@
 # Product specification
 
-Status: first-public-release scope accepted on 2026-10-04 after twelve discovery questions and implemented in development builds on 2026-10-04 (branch `feature/core-first-release`). Public distribution still requires the qualification listed in [ROADMAP.md](ROADMAP.md) and [RELEASE.md](RELEASE.md).
+Status: first-public-release scope accepted on 2026-10-04 after twelve discovery questions and implemented in development builds on 2026-10-04 (branch `feature/core-first-release`). The owner approved a MIT-licensed source preview on 2026-10-05. Public app-binary distribution still requires the qualification listed in [ROADMAP.md](ROADMAP.md) and [RELEASE.md](RELEASE.md).
 
 ## Product and audience
 

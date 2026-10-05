@@ -1,13 +1,13 @@
 # Roadmap
 
-Status: core-first public release accepted on 2026-10-04 and implemented in development builds the same day. Qualification before public distribution remains open.
+Status: core-first public release accepted on 2026-10-04 and implemented in development builds the same day. MIT-licensed source publication was approved on 2026-10-05. Qualification before public app-binary distribution remains open.
 
 ## Foundation — existing alpha
 
-- Private repository, native macOS app, and accepted Aperture A branding.
+- MIT-licensed source repository, native macOS app, and accepted Aperture A branding.
 - Source/destination comparison, content-confirmed duplicate detection, verified copies, and local settings/reports.
 - CI builds/tests/packages Apple silicon and Intel variants.
-- Version tags produce unpublished draft prereleases with checksum files.
+- Version tags produce draft source prereleases without app binaries.
 - See [validation](VALIDATION.md) for actual tests and [the specification](SPEC.md) for alpha limitations.
 
 ## First public release — polished core (implemented, awaiting qualification)
@@ -21,14 +21,14 @@ Status: core-first public release accepted on 2026-10-04 and implemented in deve
 - Self-contained metadata helper/runtime packaging (pinned Perl 5.44.0 and ExifTool 13.59) and visible open-source notices, with no separate installation required.
 - Preserve source files: no delete-after-import option in this release.
 
-## Qualification before public distribution
+## Qualification before public app-binary distribution
 
 - Test genuine camera metadata, grouping, sidecar coverage, dates, and related-file collisions using approved representative fixtures.
 - Measure real-card and large-library preview performance; preserve full-copy verification.
 - Exercise local/removable destination copies, interruption/removal, missing dates, repeat imports, physical-card ejection, and supported editor handoff.
 - Test supported macOS versions and both architectures, upgrade/settings migration, and clean-machine installation without external metadata dependencies.
 - Helper components are pinned, checksum-verified, noticed, and exercised from the packaged app in CI; the owner still needs to confirm the redistribution licensing route and qualify nested-code notarization.
-- Choose the app's source license and release support expectations.
+- MIT source license selected; source previews have no support or compatibility guarantee.
 - Complete Developer ID signing, hardened runtime, notarization, and clean-install verification. Publishing remains an owner decision.
 
 ## Later updates — approved advanced directions

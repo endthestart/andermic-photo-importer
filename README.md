@@ -6,7 +6,30 @@ A lightweight native macOS app that copies **only new photo and video originals*
 
 ![Import window](docs/screenshots/import-window.png)
 
-**Development preview:** builds are ad hoc signed and not notarized. Real-camera, clean-machine, and older-macOS qualification remain in progress. See [the specification](docs/SPEC.md) and [roadmap](docs/ROADMAP.md).
+**Source preview:** build the app on your Mac using the instructions below. This release publishes source code, with no prebuilt app downloads. Local builds are ad hoc signed; Apple Developer Program membership is not needed to build or use them. Real-camera, clean-machine, and older-macOS qualification remain in progress. See [validation](docs/VALIDATION.md).
+
+## Build and install
+
+Requires a Mac with macOS 13 or later, Apple’s Command Line Tools, and an internet connection for the first build. Apple silicon and Intel build and pass synthetic tests in CI; macOS versions earlier than the build hosts still need qualification. No Xcode project, Homebrew, separate ExifTool installation, or paid Apple membership is required.
+
+Install the Command Line Tools if you do not already have them:
+
+```sh
+xcode-select --install
+```
+
+After installation finishes:
+
+```sh
+git clone https://github.com/endthestart/andermic-photo-importer.git
+cd andermic-photo-importer
+./build.sh
+open "dist/Andermic Photo Importer.app"
+```
+
+The first build downloads pinned, checksum-verified Perl and ExifTool sources and compiles the bundled metadata reader (about two minutes on the development Mac). Later builds reuse it. The app builds for your Mac’s architecture. For a permanent installation, quit the app and drag `dist/Andermic Photo Importer.app` into Applications, then open that copy.
+
+To update, quit the app, run `git pull --ff-only` and `./build.sh`, and replace your installed copy. Your destination, folder layout, presets, and reports stay in Application Support.
 
 ## Use it
 
@@ -46,30 +69,28 @@ Photo formats include NEF, NRW, CR2/CR3, ARW, RAF, ORF, RW2, DNG, GPR, JPEG, HEI
 
 Settings and import reports are local files in `~/Library/Application Support/Andermic Photo Importer/`. Prototype settings from `Photo Import/` are adopted once and left in place.
 
-## Build and test
-
-Apple's Command Line Tools are required to build. The first build downloads pinned, checksum-verified Perl and ExifTool sources and compiles the bundled metadata helper (about 2 minutes). The app targets macOS 13+, but earlier versions are not yet qualified.
+## Development checks
 
 ```sh
-xcode-select --install
 ./test.sh
 ./build.sh
 ./scripts/package.sh
 ./scripts/verify-package.sh
 ```
 
-The app appears at `dist/Andermic Photo Importer.app`. Each build targets the current Mac's architecture. `./scripts/ui-exercise.sh` drives the real GUI against synthetic cards and saves screenshots to `build/screens/`. It uses a separate test-only build and isolated settings, and never touches other mounted volumes.
+Tests use disposable synthetic originals. Package verification checks signatures, architecture, license notices, checksums, and metadata reading from the extracted app with an empty environment. Packaging creates local development ZIPs; these are not the public source-release downloads.
+
+`./scripts/ui-exercise.sh` drives the GUI against synthetic cards with isolated settings and saves screenshots to `build/screens/`. It exercises the system clipboard and restores it afterwards. Use it with real camera cards disconnected; it never imports from or ejects them.
 
 ## CI and releases
 
-- Pushes to `main`, pull requests, and manual runs build and test on Apple silicon and Intel runners. CI builds the pinned helper natively for each architecture, then verifies the packaged archives.
-- A version tag matching `VERSION` (such as `v0.1.0-alpha.1`) builds both architectures from verified sources and creates a **draft prerelease** with ZIPs and SHA-256 checksums. Drafts are never published automatically.
-- [Release instructions](docs/RELEASE.md) cover Developer ID signing, notarization, and qualification.
+- Pushes to `main`, pull requests, and manual runs build, test, and verify packages on Apple silicon and Intel runners.
+- Version tags build and verify both architectures, then create a **draft source prerelease**. Publishing is manual. GitHub provides the tagged source ZIP and tar archive; no app binaries are attached.
+- [Release instructions](docs/RELEASE.md) cover source previews now and Developer ID signing/notarization later.
+- Report reproducible problems in [GitHub Issues](https://github.com/endthestart/andermic-photo-importer/issues). Include macOS version, architecture, file formats, and the steps; remove personal paths and photo metadata from reports before sharing. This is an early preview with no support or compatibility guarantee.
 
-Product behavior: [specification](docs/SPEC.md). Decisions: [ADR-0001](docs/decisions/0001-local-importer-and-release-foundation.md) to [ADR-0005](docs/decisions/0005-photo-groups-selection-and-sources.md). Evidence: [validation](docs/VALIDATION.md).
+Product behavior: [specification](docs/SPEC.md). Decisions: [ADR-0001](docs/decisions/0001-local-importer-and-release-foundation.md) to [ADR-0006](docs/decisions/0006-mit-source-preview.md). Evidence: [validation](docs/VALIDATION.md).
 
-## Hosting and license
+## License
 
-The product page is [andermic.com/projects/photo-importer](https://andermic.com/projects/photo-importer/). Releases are not notarized (there's no Apple Developer ID yet): build from source with `./build.sh`, or download a release and allow it in System Settings → Privacy & Security → "Open Anyway" on first launch.
-
-The app is released under the [MIT License](LICENSE). Bundled ExifTool and Perl keep their own licenses, shown in the app under **Third-Party Notices** ([ADR-0004](docs/decisions/0004-self-contained-metadata-helper.md)). The icon is the accepted Aperture A concept; builds generate macOS icon sizes from the original PNG.
+The app’s source is under the [MIT License](LICENSE). Bundled ExifTool and Perl retain their own licenses and notices; see [THIRD_PARTY.md](THIRD_PARTY.md) and **Help → Third-Party Notices** in the app. The icon is the accepted Aperture A concept; builds generate macOS icon sizes from the original PNG.

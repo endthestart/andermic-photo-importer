@@ -51,6 +51,8 @@ cat > "$app_path/Contents/Info.plist" <<PLIST
 </dict></plist>
 PLIST
 /usr/bin/plutil -lint "$app_path/Contents/Info.plist"
+cp LICENSE "$app_path/Contents/Resources/LICENSE.txt"
+cp THIRD_PARTY.md "$app_path/Contents/Resources/THIRD_PARTY.md"
 # The self-contained metadata reader: pinned Perl runtime, ExifTool, and their licenses.
 /usr/bin/ditto "$helper" "$app_path/Contents/Resources/MetadataHelper"
 /usr/bin/xattr -cr "$app_path"

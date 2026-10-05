@@ -1,4 +1,4 @@
-name: Draft release
+name: Draft source release
 
 on:
   push:
@@ -49,47 +49,29 @@ jobs:
         run: |
           ./scripts/package.sh
           ./scripts/verify-package.sh
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: release-${{ matrix.architecture }}
-          path: |
-            dist/*.zip
-            dist/*.sha256
-          if-no-files-found: error
-          retention-days: 14
 
   draft:
-    name: Create reviewable draft prerelease
+    name: Create reviewable draft source prerelease
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          pattern: release-*
-          path: artifacts
-          merge-multiple: true
-      - name: Verify checksums
-        working-directory: artifacts
-        run: sha256sum --check ./*.sha256
       - name: Write release notes
         run: |
           cat > release-notes.md <<'NOTES'
-          Development preview of Andermic Photo Importer. Select new photos in a thumbnail grid and copy them, with related RAW/JPEG/sidecar files, into configurable date folders (Pictures/YYYY/MM/DD by default). Duplicates are confirmed by content and every copy is verified.
+          MIT-licensed source preview of Andermic Photo Importer. Build and install locally on macOS using README.md. Apple Developer Program membership is not needed for local builds.
 
-          These builds are locally/ad hoc signed, not Developer ID signed or Apple notarized. This draft is for review and testing; it is not a public-ready distribution release.
+          This release contains source only. Use GitHub’s Source code ZIP or tar archive below, or clone the repository. No prebuilt app binaries are attached.
 
-          - `arm64`: Apple silicon Macs.
-          - `x86_64`: Intel Macs.
-          - Self-contained: ExifTool and its Perl runtime are bundled (see Third-Party Notices in the app). No Homebrew or separate installation is needed.
-          - Real camera metadata, real-card performance, physical-card ejection, DxO handoff, clean-machine installs, and earlier macOS versions still need live qualification.
-          - Embedded metadata edits can affect the current whole-file duplicate matching.
+          Features: a native thumbnail grid, new-photo selection, configurable date folders and presets, RAW/JPEG/sidecar groups, content-confirmed duplicate detection, verified copies, interruption reports and retry, and optional editor handoff/card ejection. The build bundles pinned Perl and ExifTool with their upstream notices.
 
-          Source: the tagged commit. SHA-256 checksum files accompany both builds. See docs/RELEASE.md for the signing and public-release checklist.
+          Both Apple silicon and Intel builds are tested and package-verified before this draft is created. Real-camera metadata/grouping, real-card performance, physical ejection, editor handoff, clean-machine installs, and earlier macOS versions still need live qualification. Local builds are ad hoc signed and not notarized. This is an early source preview, with no support or compatibility guarantee.
+
+          See README.md for build/install instructions, CHANGELOG.md for changes, and docs/VALIDATION.md for the evidence and remaining limitations. Please report reproducible issues without personal paths or photo metadata.
           NOTES
-      - name: Create or update draft assets
+      - name: Create draft source release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -97,8 +79,8 @@ jobs:
         run: |
           if gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft > is-draft.txt 2>/dev/null; then
             test "$(cat is-draft.txt)" = true
-            gh release upload "$RELEASE_TAG" artifacts/* --clobber
+            gh release edit "$RELEASE_TAG" --notes-file release-notes.md
           else
-            gh release create "$RELEASE_TAG" artifacts/* --verify-tag --draft --prerelease \
-              --title "Andermic Photo Importer $RELEASE_TAG — development preview" --notes-file release-notes.md
+            gh release create "$RELEASE_TAG" --verify-tag --draft --prerelease \
+              --title "Andermic Photo Importer $RELEASE_TAG — source preview" --notes-file release-notes.md
           fi
