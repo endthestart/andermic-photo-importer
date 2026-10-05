@@ -8,6 +8,8 @@ The prototype works for the owner's immediate card-clearing workflow, but person
 
 ## Decision
 
+Card defaults and launch behavior were subsequently updated by [ADR-0007](0007-menu-bar-lifecycle.md).
+
 - Target macOS first using the current native foundation; Linux is a possible later platform.
 - Default new users to their Pictures directory and year/month/day organization without an event name. Preserve existing choices on upgrade; keep other date/event layouts and custom templates.
 - Use an Apple Photos-inspired selection grid and selected/all-new actions, with familiar side panels, visible common settings, saved presets, and expandable advanced sections. No wizard.

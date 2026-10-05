@@ -33,13 +33,17 @@ To update, quit the app, run `git pull --ff-only` and `./build.sh`, and replace 
 
 ## Use it
 
-1. Open the app. Nothing else needs to be installed: metadata reading is built in.
-2. Insert a camera card. By default, the app shows its window and scans the card. You can also choose a folder (⌘O), drop one on the grid, or open one with the app. Scanning only previews; nothing is copied until you click an import button.
+1. Open the app. By default it starts in the menu bar without a window. Click its icon and choose **Show Andermic Photo Importer**. Nothing else needs to be installed: metadata reading is built in.
+2. Insert a camera card. New installations scan in the background by default; reopen the window to review the preview. You can also choose a folder (⌘O), drop one on the grid, or open one with the app. Scanning only previews; nothing is copied until you click an import button.
 3. Review the thumbnail grid. New photos are selected. Click a photo to include or exclude it, and Shift-click to toggle a range. Filter by date or file type, or hide photos already imported.
 4. Check **Import Options**. The destination defaults to your Pictures folder, and the folder structure defaults to Year / Month / Day (`~/Pictures/2026/10/04/`). Choices are remembered and can be saved as presets. An event name is optional.
 5. Click **Import N Selected** or **Import All New**. Optionally, open the new folders in your editor and eject the card after verification.
 
-The app stays in the menu bar when its window closes. Under **Advanced**, you can choose to only show that a card is available instead of opening the window and scanning. Cameras that appear only in Image Capture must first be copied into a normal folder.
+Closing the last window hides the Dock icon and keeps the app in the menu bar. Scanning and an import already started continue while hidden. Choose **Quit** from the menu-bar icon to exit. Reopening a window restores the Dock icon.
+
+Under **Advanced → Startup**, turn off **Start in the menu bar without a window** if you prefer a window on launch. **Login Items…** opens macOS settings; add the installed app under **Open at Login** to start it automatically. This is managed by macOS, not an automatic registration by the app.
+
+The separate **When a card is inserted** setting offers background scanning, showing the window and scanning, or availability only with manual scanning. Existing card preferences are preserved on upgrade. A card mounted before launch can be scanned without opening the window. Copying always waits for an import button. Cameras that appear only in Image Capture must first be copied into a normal folder.
 
 ## Folder structures
 
@@ -80,7 +84,7 @@ Settings and import reports are local files in `~/Library/Application Support/An
 
 Tests use disposable synthetic originals. Package verification checks signatures, architecture, license notices, checksums, and metadata reading from the extracted app with an empty environment. Packaging creates local development ZIPs; these are not the public source-release downloads.
 
-`./scripts/ui-exercise.sh` drives the GUI against synthetic cards with isolated settings and saves screenshots to `build/screens/`. It exercises the system clipboard and restores it afterwards. Use it with real camera cards disconnected; it never imports from or ejects them.
+`./scripts/ui-exercise.sh` drives the GUI against synthetic cards with isolated settings and saves screenshots to `build/screens/`. It briefly brings test windows forward, runs editing checks through the system clipboard, and restores the clipboard afterwards. Physical keystrokes are ignored only by the automated test app so they cannot change its fixtures. Use it with real camera cards disconnected; it never imports from or ejects them.
 
 ## CI and releases
 
@@ -89,7 +93,7 @@ Tests use disposable synthetic originals. Package verification checks signatures
 - [Release instructions](docs/RELEASE.md) cover source previews now and Developer ID signing/notarization later.
 - Report reproducible problems in [GitHub Issues](https://github.com/endthestart/andermic-photo-importer/issues). Include macOS version, architecture, file formats, and the steps; remove personal paths and photo metadata from reports before sharing. This is an early preview with no support or compatibility guarantee.
 
-Product behavior: [specification](docs/SPEC.md). Decisions: [ADR-0001](docs/decisions/0001-local-importer-and-release-foundation.md) to [ADR-0006](docs/decisions/0006-mit-source-preview.md). Evidence: [validation](docs/VALIDATION.md).
+Product behavior: [specification](docs/SPEC.md). Decisions: [ADR-0001](docs/decisions/0001-local-importer-and-release-foundation.md) to [ADR-0007](docs/decisions/0007-menu-bar-lifecycle.md). Evidence: [validation](docs/VALIDATION.md).
 
 ## License
 

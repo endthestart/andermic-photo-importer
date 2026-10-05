@@ -94,6 +94,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     let advancedToggle = NSButton(title: "", target: nil, action: nil)
     let advancedBox = NSStackView()
     let cardBehaviorPopup = NSPopUpButton()
+    let backgroundLaunch = NSButton(checkboxWithTitle: "Start in the menu bar without a window", target: nil, action: nil)
     let editorPath = NSTextField(labelWithString: "")
     var inspectorItem: NSSplitViewItem!
     var sidebarItem: NSSplitViewItem!
@@ -115,6 +116,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         refresh()
     }
     required init?(coder: NSCoder) { fatalError() }
+
+    override func showWindow(_ sender: Any?) {
+        (NSApp.delegate as? AppDelegate)?.presentWindow()
+        super.showWindow(sender)
+        window?.deminiaturize(nil)
+        window?.makeKeyAndOrderFront(sender)
+        // Activation-policy changes settle on the next run-loop turn.
+        DispatchQueue.main.async { NSApp.activate(ignoringOtherApps: true) }
+    }
 
     // MARK: Layout
 
@@ -286,15 +296,19 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         let advancedTitle = NSButton(title: "Advanced", target: self, action: #selector(toggleAdvancedFromTitle)); advancedTitle.isBordered = false
         advancedTitle.font = .systemFont(ofSize: 12, weight: .semibold)
         let advancedRow = NSStackView(views: [advancedToggle, advancedTitle]); advancedRow.spacing = 2
-        cardBehaviorPopup.addItems(withTitles: ["Show window and scan the card", "Only show that a card is available"])
+        cardBehaviorPopup.addItems(withTitles: ["Show window and scan the card", "Only show that a card is available", "Scan in the background"])
         cardBehaviorPopup.target = self; cardBehaviorPopup.action = #selector(cardBehaviorChanged)
         cardBehaviorPopup.setAccessibilityLabel("When a card is inserted")
+        backgroundLaunch.target = self; backgroundLaunch.action = #selector(backgroundLaunchChanged)
+        let loginItems = NSButton(title: "Login Items…", target: NSApp.delegate, action: #selector(AppDelegate.showLoginItems))
         editorPath.font = .systemFont(ofSize: 11); editorPath.textColor = .secondaryLabelColor; editorPath.lineBreakMode = .byTruncatingMiddle
         let chooseEditor = NSButton(title: "Choose Editor…", target: self, action: #selector(chooseEditor))
         let reportsButton = NSButton(title: "Show Import Reports", target: self, action: #selector(showReports))
         let noticesButton = NSButton(title: "Third-Party Notices…", target: NSApp.delegate, action: #selector(AppDelegate.showNotices))
         advancedBox.orientation = .vertical; advancedBox.alignment = .leading; advancedBox.spacing = 8
-        for view in [label("When a card is inserted"), cardBehaviorPopup,
+        for view in [label("Startup"), backgroundLaunch, loginItems,
+                     small("To start at login, add this app under Open at Login in macOS Login Items. The menu-bar option keeps its window closed on launch."),
+                     label("When a card is inserted"), cardBehaviorPopup,
                      small("Scanning only previews. Copying always waits for an import button, and an import in progress is never interrupted."),
                      label("Editor handoff"), editorPath, chooseEditor,
                      label("Folder template tokens"),
@@ -362,7 +376,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         structurePopup.selectItem(at: FolderStructure.all.firstIndex { $0.template == settings.folderTemplate } ?? FolderStructure.all.count)
         openEditor.state = settings.openInDxO ? .on : .off
         ejectCheck.state = settings.eject ? .on : .off
-        cardBehaviorPopup.selectItem(at: settings.cardInsertion == .showAndScan ? 0 : 1)
+        cardBehaviorPopup.selectItem(at: settings.cardInsertion == .showAndScan ? 0 : (settings.cardInsertion == .indicate ? 1 : 2))
+        backgroundLaunch.state = settings.launchInBackground ? .on : .off
         rebuildPresetMenu()
     }
 
@@ -456,7 +471,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         persist(); rebuildPresetMenu(); reorganize()
     }
     @objc func completionChanged() { settings.openInDxO = openEditor.state == .on; settings.eject = ejectCheck.state == .on; persist(); rebuildPresetMenu() }
-    @objc func cardBehaviorChanged() { settings.cardInsertion = cardBehaviorPopup.indexOfSelectedItem == 0 ? .showAndScan : .indicate; persist() }
+    @objc func cardBehaviorChanged() { settings.cardInsertion = [CardInsertionBehavior.showAndScan, .indicate, .scanInBackground][cardBehaviorPopup.indexOfSelectedItem]; persist() }
+    @objc func backgroundLaunchChanged() { settings.launchInBackground = backgroundLaunch.state == .on; persist() }
     @objc func toggleAdvanced() { advancedBox.isHidden = advancedToggle.state == .off }
     @objc func toggleAdvancedFromTitle() { advancedToggle.state = advancedToggle.state == .on ? .off : .on; toggleAdvanced() }
     func showAdvanced() { advancedToggle.state = .on; toggleAdvanced(); if inspectorItem.isCollapsed { toggleInspector() } }
@@ -505,8 +521,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         newlyAvailable = newlyAvailable.filter { list.contains($0) }
         sidebar.reloadData(); selectSidebarRow()
         if let card = inserted {
-            if settings.cardInsertion == .showAndScan && state == .idle {
-                showWindow(nil); NSApp.activate(ignoringOtherApps: true)
+            if settings.cardInsertion != .indicate && state == .idle {
+                if settings.cardInsertion == .showAndScan { showWindow(nil) }
                 setSource(card, scan: true)
             } else {
                 // Quiet mode, or work in progress: never switch away or interrupt.
@@ -514,9 +530,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
                 sidebar.reloadData(); selectSidebarRow()
                 status("Card “\(card.lastPathComponent)” is available. Select it to scan.")
             }
-        } else if source == nil, state == .idle, let card = list.first, settings.cardInsertion == .showAndScan,
+        } else if source == nil, state == .idle, let card = list.first, settings.cardInsertion != .indicate,
                   Date().timeIntervalSince(launched) < 10 {
-            // A card already mounted when the app opens is shown like a newly inserted one.
+            // Startup can scan an existing card while the window stays closed.
+            // Later insertions follow the separate card setting.
             // Later list changes (such as ejecting the current card) never switch to another card.
             setSource(card, scan: true)
         }

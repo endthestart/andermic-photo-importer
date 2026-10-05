@@ -189,6 +189,7 @@ try check(pairGroup.sidecars.first { $0.url.lastPathComponent == "IMG_0001.CR3.d
 try check(!pairGroup.primaries.contains(reused), "reused names in another directory stay separate")
 try check(grouped.orphanSidecars.map(\.lastPathComponent) == ["IMG_0099.xmp"], "sidecars without a photo are reported and not imported")
 var groupSettings = Settings(); groupSettings.destination = groupLibrary.path
+try check(groupSettings.launchInBackground && groupSettings.cardInsertion == .scanInBackground, "new users launch quietly and scan cards in the background")
 try check(groupSettings.folderTemplate == "{YYYY}/{MM}/{DD}", "new settings default to year/month/day")
 let groupPlan = try plan(event: "", source: groupCard, settings: groupSettings)
 try check(groupPlan.groups.count == 4 && groupPlan.files.count == 9 && groupPlan.orphanSidecars.count == 1, "photo-group and physical-file counts are distinct")
@@ -420,16 +421,17 @@ let legacyJSON = #"{"destination":"/Volumes/Photography/Photo Container","eject"
 try Data(legacyJSON.utf8).write(to: legacyRoot.appendingPathComponent("settings.json"))
 let migrated = Settings.load(directory: settingsRoot, legacyDirectory: legacyRoot)
 try check(migrated.destination == "/Volumes/Photography/Photo Container" && migrated.folderTemplate == "{YYYY}/{MM}-{DD} - {event}" && migrated.eject && migrated.openInDxO, "prototype settings keep the configured destination, template, and completion options")
-try check(migrated.cardInsertion == .showAndScan && migrated.presets.isEmpty && migrated.schemaVersion == Settings.schema, "fields missing from prototype settings use new defaults")
+try check(migrated.launchInBackground && migrated.cardInsertion == .showAndScan && migrated.presets.isEmpty && migrated.schemaVersion == Settings.schema, "fields missing from prototype settings use new defaults")
 try check(fm.fileExists(atPath: settingsRoot.appendingPathComponent("settings.json").path) && (try Data(contentsOf: legacyRoot.appendingPathComponent("settings.json"))) == Data(legacyJSON.utf8), "migration writes the new location and leaves the prototype file untouched")
 let fresh = Settings.load(directory: root.appendingPathComponent("FreshSettings"), legacyDirectory: root.appendingPathComponent("NoLegacy"))
 try check(fresh.destination == fm.urls(for: .picturesDirectory, in: .userDomainMask)[0].path && fresh.folderTemplate == "{YYYY}/{MM}/{DD}", "new users default to Pictures and year/month/day")
 var customized = migrated
-customized.cardInsertion = .indicate
+customized.cardInsertion = .scanInBackground
+customized.launchInBackground = false
 customized.presets = [ImportPreset(name: "Trips", destination: library.path, folderTemplate: "{YYYY}/{event}", openInEditor: false, eject: true)]
 try customized.save(to: settingsRoot)
 let reloaded = Settings.load(directory: settingsRoot, legacyDirectory: legacyRoot)
-try check(reloaded.cardInsertion == .indicate && reloaded.presets == customized.presets && reloaded.destination == customized.destination, "card behavior and saved presets persist")
+try check(reloaded.cardInsertion == .scanInBackground && !reloaded.launchInBackground && reloaded.presets == customized.presets && reloaded.destination == customized.destination, "startup, background scanning, and saved presets persist")
 try Data("{not json".utf8).write(to: settingsRoot.appendingPathComponent("settings.json"))
 let recoveredSettings = Settings.load(directory: settingsRoot, legacyDirectory: legacyRoot)
 try check(recoveredSettings.folderTemplate == Settings.defaultTemplate && (try fm.contentsOfDirectory(atPath: settingsRoot.path)).contains { $0.hasPrefix("settings-unreadable-") }, "an unreadable settings file is preserved before defaults are used")
