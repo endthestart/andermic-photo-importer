@@ -1,6 +1,6 @@
 # Product specification
 
-Status: first-public-release scope accepted on 2026-10-04 after twelve discovery questions. This specification distinguishes desired behavior from the shipped development alpha. The interview changed documentation only; implementation has not started.
+Status: first-public-release scope accepted on 2026-10-04 after twelve discovery questions and implemented in development builds on 2026-10-04 (branch `feature/core-first-release`). Public distribution still requires the qualification listed in [ROADMAP.md](ROADMAP.md) and [RELEASE.md](RELEASE.md).
 
 ## Product and audience
 
@@ -28,17 +28,30 @@ These are approved product directions, not prerequisites for the first public re
 - **Second copy.** Offer an optional second verified copy to another drive/folder in advanced settings. When enabled, every included file at both destinations must verify before offering source deletion. Preserve successful copies and report each destination's result if the other fails. A second import copy is not automatically a complete backup strategy.
 - **Delete after import.** Offer optional source cleanup only after the complete intended import verifies, followed by a final batch confirmation showing the source card and file count. If a second copy is enabled, both copies must verify. Deletion scope, eligibility of verified duplicates, option persistence, identity rechecks, cancellation/failure behavior, and cleanup/ejection ordering require a dedicated contract and tests. No current files may be deleted under these design notes.
 
-## Current alpha behavior and limitations
+## Implemented first-release behavior
 
-The alpha uses `/Volumes/Photography/Photo Container` and `{YYYY}/{MM}-{DD} - {event}` as defaults, a table preview, and a separately installed ExifTool. It imports supported media originals but not source sidecars, has no selectable photo groups or per-file import selection, uses original filenames with collision suffixes, and copies to one destination. It detects mounted local removable DCIM volumes, keeps settings/reports in the prototype's `Photo Import` Application Support directory, offers DxO handoff and verified ejection, and never deletes sources. These facts must remain accurate in setup/release descriptions until implementation changes.
+The development build implements items 1–10 above. Detailed related-file, duplicate, collision, selection, card, and settings rules are in [ADR-0005](decisions/0005-photo-groups-selection-and-sources.md); the bundled metadata helper is described in [ADR-0004](decisions/0004-self-contained-metadata-helper.md).
 
-The scanner groups destination files by size and SHA-256 samples of their beginning, middle, and end (up to 96 KiB per file). Sample equality is only a candidate test: possible duplicates require full SHA-256 confirmation. New files are fully hashed during copying instead of preview. Source identity, size, modification/change times, staged readback, and final destination verification protect the import. Directory enumeration and duplicate-heavy full reads remain performance costs; no persistent hash cache exists yet.
+- **Window.** A source sidebar (detected cards and the chosen folder), a central thumbnail grid with New Photos and Already Imported sections, and an Import Options panel. The panel holds presets, destination, folder structure, the optional event name, resulting folders, missing-date fallback, after-import options, and a collapsed Advanced section with card behavior, editor choice, token help, reports, and notices. Filters cover capture date, file type (including RAW+JPEG pairs), and whether to show imported photos. A slider sets thumbnail size. The footer shows selected photos, files, and bytes; progress; Stop; **Import All New (N)**; and **Import N Selected**.
+- **Thumbnails.** Thumbnails load through ImageIO on at most three background operations (one during an import), from embedded previews when large enough. An identity-keyed cache holds up to 1,500 images or 256 MB. Work for tiles that scroll away, or for an obsolete scan, is cancelled. Videos and files without a preview show a placeholder and remain importable.
+- **Scanning.** Groups appear as soon as the source is listed; dates and duplicate status follow. Capture dates use a 256 KiB ImageIO header read for `DateTimeOriginal`, with the bundled ExifTool reading other date fields and containers. Each photo keeps its camera-recorded calendar day. Missing dates are never invented: undated photos stay unselected until the user picks a fallback date for that source.
+- **Copies.** Each new file is staged as a hidden `.partial` file, flushed, read back, and verified against the source hash, then published with exclusive rename. Every destination is re-read before the import is complete. Source identity (device, inode, size, modification and change times) is checked during preview, before copying, and throughout copying. Symlinks, hidden files, packages, path-escaping templates, and overlapping roots are refused. A destination lock prevents concurrent imports.
+- **Interruption.** Stop or a failure removes the in-progress staging files. Completed groups and verified files stay, the report records the partial outcome, and the grid marks verified photos as imported. **Import All New** or **Scan Again** continues with what remains, re-confirming duplicates by content.
+- **Completion.** Optional editor handoff (DxO PhotoLab is detected; any app can be chosen) opens new folders. It is disabled with an explanation when no editor is installed. Optional ejection follows the rules in ADR-0005.
+- **Reports and settings.** Settings and reports are local JSON in `~/Library/Application Support/Andermic Photo Importer/`. Reports record each file's source, destination, SHA-256, action, group, role, capture day, and date origin, plus notes about renames and whether the import completed or was cancelled. Reports explain activity only; they are never used to decide whether a photo exists.
+- **No backlog settings.** Persistent history/detection modes, filename templates, second copies, source deletion, culling, and RAW processing are absent from the UI.
 
-Whole-file hashes change with embedded metadata edits. Genuine-camera compatibility, real destination-volume copies, physical ejection/editor handoff, earlier supported macOS versions, and worst-case large-library performance remain to be qualified. Read [validation](VALIDATION.md) for actual test evidence; do not equate synthetic containers with real RAW compatibility.
+## Limitations
+
+- Whole-file hashes change with embedded metadata edits, so an original edited elsewhere appears new.
+- Large destinations still require directory enumeration. True duplicates still require full reads of both copies; there is no persistent hash cache.
+- Grouping is name-based within a directory. A new member of a partly imported group goes to the group's date folder, which differs from the existing members' folder if the structure has changed.
+- Genuine camera RAW metadata and grouping, real-card performance, real destination volumes, physical ejection, DxO handoff, clean-machine installation, macOS versions earlier than the build host, Developer ID signing, and notarization are unqualified. See [validation](VALIDATION.md) for actual evidence.
 
 ## Decision references
 
 - [Discovery answers and remaining recommendations](DESIGN-DISCOVERY.md).
 - [Core-first release decision](decisions/0003-core-first-public-release.md).
+- [Bundled metadata helper](decisions/0004-self-contained-metadata-helper.md) and [photo groups, selection, and sources](decisions/0005-photo-groups-selection-and-sources.md).
 - [Roadmap and public-release qualification](ROADMAP.md).
 - [Import history and metadata packaging research](research/import-history-and-metadata-packaging.md).

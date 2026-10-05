@@ -1,6 +1,6 @@
 # ADR-0003: General-purpose macOS importer with a core-first release
 
-Status: accepted on 2026-10-04 through the twelve-question design interview. Documentation only; implementation requires a subsequent request.
+Status: accepted on 2026-10-04 through the twelve-question design interview; implemented on 2026-10-04 (see ADR-0004 and ADR-0005).
 
 ## Context
 

@@ -52,4 +52,4 @@ Proposed packaging acceptance criteria:
 - A clean-machine test exercises RAW metadata with no external ExifTool/Homebrew/Perl dependency available to the helper. Tests explicitly select the bundled helper and exercise fallback rather than passing only through ImageIO.
 - Metadata helper updates ship with an app update; the ordinary import workflow requires no download or login.
 
-These packaging criteria are a proposed implementation plan. No helper/runtime has been bundled into the current alpha yet. Linux packaging and replacing macOS-specific APIs require a later platform decision.
+The first-release implementation meets these criteria except clean-machine testing, notarization, and owner confirmation of the licensing route; see [ADR-0004](../decisions/0004-self-contained-metadata-helper.md). Linux packaging and replacing macOS-specific APIs require a later platform decision.

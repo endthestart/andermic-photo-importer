@@ -108,6 +108,6 @@ Keep the core decisions from earlier answers: macOS first, Pictures/year/month/d
 
 ## Consolidated outcome
 
-[Product specification](SPEC.md), [release roadmap](ROADMAP.md), and [ADR-0003](decisions/0003-core-first-public-release.md) distinguish the current alpha, the first public release target, and later advanced features. No runtime or packaging changes were made during this interview. Implementation begins only under a subsequent implementation request; the owner's notes-only instruction remains in effect.
+[Product specification](SPEC.md), [release roadmap](ROADMAP.md), and [ADR-0003](decisions/0003-core-first-public-release.md) distinguish the first public release target from later advanced features. No runtime or packaging changes were made during this interview. The owner later requested implementation of the first-release scope; the resulting decisions are in [ADR-0004](decisions/0004-self-contained-metadata-helper.md) and [ADR-0005](decisions/0005-photo-groups-selection-and-sources.md).
 
 Research: [import history and metadata packaging](research/import-history-and-metadata-packaging.md).

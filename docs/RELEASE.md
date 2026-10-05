@@ -2,7 +2,7 @@
 
 ## Development builds and draft releases
 
-CI runs on `main`, pull requests, and manual dispatch. It tests synthetic originals, builds the GUI/icon, creates a ZIP and checksum, and extracts the ZIP to verify the signature, architecture, version, and icon. Development artifacts expire after seven days.
+CI runs on `main`, pull requests, and manual dispatch. On each architecture it builds the pinned Perl/ExifTool helper (cached by lock-file hash), tests synthetic originals through that helper, builds the GUI/icon, and creates a ZIP and checksum. It then extracts the ZIP to verify the signature, architecture, version, icon, helper manifest, nested-binary signatures and linkage, and a bundled-helper metadata read with an empty environment. Development artifacts expire after seven days.
 
 To create a reviewable draft, update `VERSION` if needed, commit, and push a matching version tag:
 
@@ -13,7 +13,7 @@ git push origin v0.1.0-alpha.1
 
 Use a new version/tag for each release. Tags are immutable release inputs; don't move an existing tag. The tag's base version must match `VERSION`. The workflow builds both architectures and creates a **draft prerelease**, uploading ZIPs and SHA-256 files. A failed build prevents draft creation. Rerunning can replace assets only while that release is still a draft; published releases are refused by the upload step.
 
-These automatic drafts are **ad hoc signed and not notarized**. They must not be presented as ordinary public-ready downloads. The app needs ExifTool separately. No public release is automatically published.
+These automatic drafts are **ad hoc signed and not notarized**. They must not be presented as ordinary public-ready downloads. ExifTool and Perl are bundled; tagged builds compile them from checksum-verified sources without a cache. No public release is automatically published.
 
 ## Developer ID signing and notarization
 
@@ -23,7 +23,7 @@ Apple Developer Program membership and a Developer ID Application certificate ar
 SIGNING_IDENTITY='Developer ID Application: Your Verified Name (TEAMID)' ./build.sh
 ```
 
-The signed build enables hardened runtime and secure timestamps. Set up a notarization credential profile interactively with Apple's tool; keep credentials in the Keychain, not in Git or shell history:
+The signed build signs the bundled Perl interpreter and its extension modules, then the app, with hardened runtime and secure timestamps. Notarization of this nested code has not yet been attempted; if Apple rejects it, record the finding before adding any entitlement. Set up a notarization credential profile interactively with Apple's tool; keep credentials in the Keychain, not in Git or shell history:
 
 ```sh
 xcrun notarytool store-credentials andermic-notary
@@ -38,7 +38,8 @@ The CI workflow does not yet import certificates or perform notarization. After 
 ## Public-release gates
 
 - Complete the live qualification items in [ROADMAP.md](ROADMAP.md).
-- Settle ExifTool installation/redistribution and choose a source license.
+- Confirm the redistribution route for the bundled Perl and ExifTool (Artistic License or GPL; notices and pinned sources are in the app) and choose the app's source license.
+- Run `./scripts/ui-exercise.sh` and a manual import from a real card on a clean Mac without Homebrew or ExifTool, on each supported macOS version and architecture.
 - Build and notarize the qualified tag/commit for each distributed architecture.
 - Verify signatures, stapled tickets, Gatekeeper behavior, checksums, architecture, and a clean installation on another Mac.
 - Replace the draft's development ZIPs/checksums with the notarized packages, identify signing/qualification in release notes, and review before publishing.
