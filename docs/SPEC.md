@@ -45,7 +45,7 @@ The development build implements items 1–10 above. Detailed related-file, dupl
 
 - Whole-file hashes change with embedded metadata edits, so an original edited elsewhere appears new.
 - Large destinations still require directory enumeration. True duplicates still require full reads of both copies; there is no persistent hash cache.
-- Grouping is name-based within a directory. A new member of a partly imported group goes to the group's date folder, which differs from the existing members' folder if the structure has changed.
+- Grouping is name-based within a directory. A new photo in a partly imported group goes to the group's date folder, which differs from the existing members' folder if the structure has changed. Sidecars of imported photos go beside the photo; a changed sidecar brings a second copy of its photo (ADR-0005).
 - Genuine camera RAW metadata and grouping, real-card performance, real destination volumes, physical ejection, DxO handoff, clean-machine installation, macOS versions earlier than the build host, Developer ID signing, and notarization are unqualified. See [validation](VALIDATION.md) for actual evidence.
 
 ## Decision references

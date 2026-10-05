@@ -250,6 +250,47 @@ let collisionRepeat = try plan(event: "", source: collisionCard, settings: group
 try check(collisionRepeat.groups[0].status == .imported, "suffixed groups, including their sidecars, are recognized on rescan")
 _ = collidingJPEG
 
+// MARK: Changed and missing sidecars beside imported photos
+let sideCard = root.appendingPathComponent("SidecarCard"), sideLibrary = root.appendingPathComponent("SidecarLibrary")
+try fm.createDirectory(at: sideLibrary, withIntermediateDirectories: true)
+var sideSettings = Settings(); sideSettings.destination = sideLibrary.path
+_ = try jpeg("DSC_8000.JPG", day: "2025:10:01 09:00:00", color: 81, in: sideCard)
+try Data([8, 0, 0, 0, 1]).write(to: sideCard.appendingPathComponent("DSC_8000.NEF"))
+let changedXMP = sideCard.appendingPathComponent("DSC_8000.xmp"); try Data("<rating>1</rating>".utf8).write(to: changedXMP)
+_ = try jpeg("DSC_8001.JPG", day: "2025:10:01 10:00:00", color: 82, in: sideCard)
+let missingXMP = sideCard.appendingPathComponent("DSC_8001.JPG.xmp"); try Data("<label>red</label>".utf8).write(to: missingXMP)
+try Data([8, 0, 0, 0, 2]).write(to: sideCard.appendingPathComponent("UNDATED.NEF"))
+let undatedXMP = sideCard.appendingPathComponent("UNDATED.xmp"); try Data("<rating>2</rating>".utf8).write(to: undatedXMP)
+let sideFirst = try Importer.plan(source: sideCard, settings: sideSettings, event: "", fallback: fallback, helper: helper, cancellation: cancellation, progress: { _ in })
+try check(try run(sideFirst).copied == 7, "sidecar fixtures import with their photos")
+let sideFolder = sideLibrary.appendingPathComponent("2025/10/01"), undatedFolder = sideLibrary.appendingPathComponent("2025/05/18")
+// Edit the destination sidecar (as an editor would), change the card's version, and remove another sidecar.
+try Data("<rating>5</rating> edited in the destination".utf8).write(to: sideFolder.appendingPathComponent("DSC_8000.xmp"))
+try Data("<rating>3</rating> changed on the card".utf8).write(to: changedXMP)
+try fm.removeItem(at: sideFolder.appendingPathComponent("DSC_8001.JPG.xmp"))
+try Data("<rating>4</rating> changed on the card".utf8).write(to: undatedXMP)
+let sidePlan = try Importer.plan(source: sideCard, settings: sideSettings, event: "", fallback: nil, helper: helper, cancellation: cancellation, progress: { _ in })
+let changedGroup = group(sidePlan, "DSC_8000"), missingGroup = group(sidePlan, "DSC_8001"), undatedGroup = group(sidePlan, "UNDATED")
+try check([changedGroup, missingGroup, undatedGroup].allSatisfy { $0.status == .sidecarChanged } && sidePlan.newGroups.isEmpty, "changed or missing sidecars are shown but not selected by default")
+try check(sidePlan.missingDates(in: [undatedGroup.id]) == 0, "an undated sidecar-only import needs no date: it goes beside its imported photo")
+let sideResult = try run(sidePlan, selection: [changedGroup.id, missingGroup.id, undatedGroup.id])
+let sideNames = Set(try fm.contentsOfDirectory(atPath: sideFolder.path))
+try check((try? String(contentsOf: sideFolder.appendingPathComponent("DSC_8000.xmp"), encoding: .utf8)) == "<rating>5</rating> edited in the destination", "the edited destination sidecar is never replaced")
+let companions = sideNames.filter { $0.hasPrefix("DSC_8000__") }
+let companionStems = Set(companions.map { $0.components(separatedBy: ".")[0] })
+try check(companions.count == 3 && companionStems.count == 1 && companions.contains { $0.hasSuffix(".NEF") } && companions.contains { $0.hasSuffix(".JPG") } && companions.contains { $0.hasSuffix(".xmp") }, "a changed sidecar is imported with a matching copy of its photos under one shared name")
+let companionXMP = sideFolder.appendingPathComponent(companions.first { $0.hasSuffix(".xmp") }!)
+try check(try bytes(companionXMP) == bytes(changedXMP) && (try bytes(sideFolder.appendingPathComponent(companions.first { $0.hasSuffix(".NEF") }!))) == (try bytes(sideCard.appendingPathComponent("DSC_8000.NEF"))), "companion copies are byte-identical to the card")
+try check(try bytes(sideFolder.appendingPathComponent("DSC_8001.JPG.xmp")) == bytes(missingXMP), "a missing sidecar is restored beside its photo under its associated name")
+let undatedCompanions = try fm.contentsOfDirectory(atPath: undatedFolder.path).filter { $0.hasPrefix("UNDATED__") }
+try check(undatedCompanions.count == 2, "an undated changed sidecar is imported beside its photo without a fallback date")
+try check(sideResult.copied == 6 && !sideResult.notes.isEmpty, "only the sidecars and the photo copies they need are created, and the result explains why")
+let sideRescan = try Importer.plan(source: sideCard, settings: sideSettings, event: "", fallback: nil, helper: helper, cancellation: cancellation, progress: { _ in })
+try check(sideRescan.groups.allSatisfy { $0.status == .imported }, "rescan recognizes changed and restored sidecars beside their photos")
+let sideRepeat = try run(sideRescan, selection: Set(sideRescan.groups.map(\.id)))
+let afterRepeat = try Importer.files(in: sideLibrary, allowed: nil, cancellation: cancellation).0.count
+try check(sideRepeat.copied == 0 && afterRepeat == 12, "repeating an identical import creates zero additional copies")
+
 // MARK: Interruption and retry
 let interruptCard = root.appendingPathComponent("InterruptCard"), interruptLibrary = root.appendingPathComponent("InterruptLibrary")
 try fm.createDirectory(at: interruptLibrary, withIntermediateDirectories: true)

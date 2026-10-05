@@ -44,6 +44,13 @@ waitIdle
 wait 2
 snap 01-preview
 state preview
+expect fallbackVisible true
+# The grid's Select All (via the Edit menu and responder chain) selects every new dated photo.
+menu Deselect All Photos
+expect selected 0
+focus grid
+menu Select All
+expect selected 23
 toggle DSC_0002
 toggle DSC_0004
 toggle DSC_0005
@@ -78,6 +85,56 @@ popup type 1
 wait 1
 snap 06-filter-pairs
 popup type 0
+# 2b. Changed sidecars: a dated RAW+JPEG+XMP group and the undated video+THM group.
+check Use this date
+shell change-sidecars
+rescan
+waitIdle
+expect status DSC_0006=sidecarChanged
+expect status MVI_0026=sidecarChanged
+expect fallbackVisible false
+expect selected 0
+toggle DSC_0006
+toggle MVI_0026
+expect importSelected Import 2 Selected|true
+wait 1
+snap 07-sidecar-changes
+click Import 2 Selected
+waitModal
+alert
+click Done
+waitIdle
+rescan
+waitIdle
+expect status DSC_0006=imported
+expect status MVI_0026=imported
+state after-sidecars
+# 2c. Standard menu commands route through the responder chain.
+type event Lisbon Trip
+focus event
+menu Select All
+expect selectedText Lisbon Trip
+menu Copy
+expect pasteboard Lisbon Trip
+menu Cut
+expect event
+menu Paste
+expect event Lisbon Trip
+menu Select All
+menu Cut
+focus grid
+menu Minimize
+wait 1.5
+expect miniaturized true
+deminiaturize
+wait 1.5
+expect miniaturized false
+menu Close Window
+wait 1
+expect visible false
+menu Andermic Photo Importer
+wait 1
+expect visible true
 # 3. Cancellation and retry on a large card.
 open $root/BigCard
 waitIdle
@@ -86,12 +143,12 @@ wait 0.3
 click Stop
 waitModal
 wait 0.5
-snap 07-cancelled
+snap 08-cancelled
 alert
 click OK
 waitIdle
 state after-cancel
-snap 08-after-cancel
+snap 09-after-cancel
 click Import All New
 waitModal
 alert
@@ -106,7 +163,7 @@ shell attach-card
 wait 4
 waitIdle
 wait 1
-snap 09-card-inserted
+snap 10-card-inserted
 state card
 check Use this date
 setDate 2026-10-06
@@ -114,7 +171,7 @@ check Eject card
 click Import All New
 waitModal
 alert
-snap 10-card-ejected
+snap 11-card-ejected
 click Done
 waitIdle
 wait 2
@@ -122,10 +179,10 @@ state after-eject
 # 5. Advanced options and third-party notices.
 advanced
 wait 1
-snap 11-advanced-options
+snap 12-advanced-options
 notices
 wait 1
-snapKey 12-third-party-notices
+snapKey 13-third-party-notices
 quit
 STEPS
 
@@ -145,6 +202,13 @@ while (( SECONDS < deadline )); do
                    screencapture -x -o -l "$window" "$screens/$name.png"
                    touch "$root/run/$name.done" ;;
             "SHELL attach-card") hdiutil attach -quiet "$root/card.dmg"; touch "$root/run/attach-card.done" ;;
+            "SHELL change-sidecars")
+                # Keep the originally imported versions for byte verification, then change the card's sidecars.
+                mkdir -p "$root/run/original-sidecars"
+                cp "$cards/DSC_0006.XMP" "$cards/MVI_0026.THM" "$root/run/original-sidecars/"
+                printf '<x:xmpmeta><rating>1</rating> changed on the card</x:xmpmeta>' > "$cards/DSC_0006.XMP"
+                printf 'changed thumbnail' > "$cards/MVI_0026.THM"
+                touch "$root/run/change-sidecars.done" ;;
             DONE) break 2 ;;
         esac
     done
@@ -164,7 +228,7 @@ def sha(path):
         for chunk in iter(lambda: f.read(1 << 20), b''): h.update(chunk)
     return h.hexdigest()
 sources = {}
-for card in ('Card', 'BigCard', 'DiskCard'):
+for card in ('Card', 'BigCard', 'DiskCard', 'run/original-sidecars'):
     for base, _, files in os.walk(os.path.join(root, card)):
         for name in files: sources.setdefault(sha(os.path.join(base, name)), []).append(name)
 imported, partial = 0, []
@@ -181,6 +245,14 @@ assert pre == b'a different photo from another camera', 'existing file was modif
 names = os.listdir(os.path.join(root, 'Library/2026/09/12'))
 suffixed = sorted(n for n in names if n.startswith('DSC_0003__'))
 assert len(suffixed) == 2 and suffixed[0].split('.')[0] == suffixed[1].split('.')[0], suffixed
+day12, day14 = os.path.join(root, 'Library/2026/09/12'), os.path.join(root, 'Library/2026/09/14')
+xmp = sorted(n for n in os.listdir(day12) if n.startswith('DSC_0006'))
+thm = sorted(n for n in os.listdir(day14) if n.startswith('MVI_0026'))
+assert open(os.path.join(day12, 'DSC_0006.XMP'), 'rb').read() == open(os.path.join(root, 'run/original-sidecars/DSC_0006.XMP'), 'rb').read(), 'existing sidecar was modified'
+companions = [n for n in xmp if n.startswith('DSC_0006__')]
+assert len(companions) == 3 and len({n.split('.')[0] for n in companions}) == 1, xmp
+assert len([n for n in thm if n.startswith('MVI_0026__')]) == 2, thm
+print(f'Changed sidecars kept existing files and arrived with matching photo copies: {companions + [n for n in thm if "__" in n]}.')
 print(f'Verified {imported} imported files byte-for-byte against synthetic sources; collision group kept one shared suffix: {suffixed}.')
 PY
 echo "Screenshots: $screens"

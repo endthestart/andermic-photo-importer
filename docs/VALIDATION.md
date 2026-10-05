@@ -54,6 +54,20 @@ Real-card throughput, ExifTool cost on genuine RAW files, and very large destina
 
 **Not yet qualified:** genuine camera metadata and grouping; real cards and destination volumes; physical ejection; DxO handoff; clean-machine installation; macOS versions earlier than 27.2; Intel beyond CI build/test/package; Developer ID signing; and notarization with nested Perl code.
 
+## Review fixes (2026-10-05)
+
+Three reproduced review findings were fixed on the same branch.
+
+- **Changed sidecars.** The previous engine imported a changed sidecar alone as `DSC_0001__<hash>.xmp`. That name matched no photo, a rescan still reported the group as changed, and every repeat added another `-1`, `-2`… copy. The new regression test fails on the previous engine. Changed sidecars now arrive with a verified copy of their photo under one shared suffix; missing sidecars go beside the imported photo; rescans recognize both; and a repeat import copies nothing (ADR-0005).
+- **Menus.** Copy, Paste, Cut, Select All, Close Window, Minimize, and Zoom were targeted at the app delegate, which implements none of them, so they never reached the text field or window. They now use the responder chain. The GUI exercise invokes the real menu items through AppKit's routing and checks where each lands: the field editor for editing commands, the window for Close and Minimize, the photo grid for Select All when a text field is not active. It also checks the result: text selected, copied, cut, and pasted (the clipboard is restored afterwards and never logged), the window minimized and restored, the window closed and reopened.
+- **Undated sidecar-only imports.** These were blocked by a fallback-date requirement whose control was hidden. Sidecars of imported photos now go beside the photo and need no date. The fallback control is shown whenever any importable photo still needs a date.
+
+Evidence on Apple silicon, macOS 27.2, synthetic fixtures only:
+
+- `./test.sh`: 100 checks.
+- Build, package, and package verification pass.
+- The GUI exercise passes all 137 steps and byte-verifies 88 imported files. Its changed-sidecar step left the card's original sidecars unchanged in the destination and produced `DSC_0006__…{JPG,NEF,XMP}` and `MVI_0026__…{MOV,THM}`, including the undated video, with no fallback date.
+
 ## Prototype and foundation (earlier)
 
 The initial prototype passed 32 synthetic safety checks and a full native GUI import/repeat scan on an Apple silicon Mac with macOS 27.2 and Homebrew ExifTool 13.55. The repository foundation passed 39 checks, including bounded preview reads, deliberate sample collisions, unsampled source changes, and large renamed duplicates. A mounted Nikon card was detected, but real photos were neither imported nor ejected.

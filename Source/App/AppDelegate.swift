@@ -93,9 +93,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             let menu = NSMenu(title: title); items.forEach(menu.addItem)
             let item = NSMenuItem(); item.submenu = menu; main.addItem(item); return menu
         }
-        func item(_ title: String, _ action: Selector, _ key: String = "", _ modifiers: NSEvent.ModifierFlags = .command, target: AnyObject? = nil) -> NSMenuItem {
+        /// Items handled by the app delegate, a specific object, or (for standard editing and window
+        /// commands) the responder chain, which needs a nil target.
+        enum Target { case app, responderChain, object(AnyObject) }
+        func item(_ title: String, _ action: Selector, _ key: String = "", _ modifiers: NSEvent.ModifierFlags = .command, target: Target = .app) -> NSMenuItem {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: key); item.keyEquivalentModifierMask = modifiers
-            item.target = target ?? self; return item
+            switch target {
+            case .app: item.target = self
+            case .responderChain: item.target = nil
+            case .object(let object): item.target = object
+            }
+            return item
         }
         let name = "Andermic Photo Importer"
         _ = submenu(name, [
@@ -104,11 +112,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             .separator(),
             item("Settings…", #selector(showSettings), ","),
             .separator(),
-            item("Hide \(name)", #selector(NSApplication.hide(_:)), "h", target: NSApp),
-            item("Hide Others", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option], target: NSApp),
-            item("Show All", #selector(NSApplication.unhideAllApplications(_:)), target: NSApp),
+            item("Hide \(name)", #selector(NSApplication.hide(_:)), "h", target: .object(NSApp)),
+            item("Hide Others", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option], target: .object(NSApp)),
+            item("Show All", #selector(NSApplication.unhideAllApplications(_:)), target: .object(NSApp)),
             .separator(),
-            item("Quit \(name)", #selector(NSApplication.terminate(_:)), "q", target: NSApp),
+            item("Quit \(name)", #selector(NSApplication.terminate(_:)), "q", target: .object(NSApp)),
         ])
         _ = submenu("File", [
             item("Choose Source Folder…", #selector(chooseSource), "o"),
@@ -118,15 +126,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             item("Import Selected", #selector(importSelected), "i"),
             item("Import All New", #selector(importAllNew), "i", [.command, .shift]),
             .separator(),
-            item("Close Window", #selector(NSWindow.performClose(_:)), "w", target: nil),
+            item("Close Window", #selector(NSWindow.performClose(_:)), "w", target: .responderChain),
         ])
         let edit = submenu("Edit", [
-            item("Undo", Selector(("undo:")), "z", target: nil), item("Redo", Selector(("redo:")), "z", [.command, .shift], target: nil),
+            item("Undo", Selector(("undo:")), "z", target: .responderChain), item("Redo", Selector(("redo:")), "z", [.command, .shift], target: .responderChain),
             .separator(),
-            item("Cut", #selector(NSText.cut(_:)), "x", target: nil), item("Copy", #selector(NSText.copy(_:)), "c", target: nil),
-            item("Paste", #selector(NSText.paste(_:)), "v", target: nil),
+            item("Cut", #selector(NSText.cut(_:)), "x", target: .responderChain), item("Copy", #selector(NSText.copy(_:)), "c", target: .responderChain),
+            item("Paste", #selector(NSText.paste(_:)), "v", target: .responderChain),
             // Text fields handle ⌘A themselves; elsewhere the window selects all new photos.
-            item("Select All", #selector(NSResponder.selectAll(_:)), "a", target: nil),
+            item("Select All", #selector(NSResponder.selectAll(_:)), "a", target: .responderChain),
             .separator(),
             item("Select All New Photos", #selector(selectAllNew), "a", [.command, .option]),
             item("Deselect All Photos", #selector(deselectAll), "a", [.command, .shift]),
@@ -138,12 +146,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             item("Larger Thumbnails", #selector(zoomIn), "+"),
             item("Smaller Thumbnails", #selector(zoomOut), "-"),
             .separator(),
-            item("Toggle Sidebar", #selector(NSSplitViewController.toggleSidebar(_:)), "s", [.command, .control], target: nil),
+            item("Toggle Sidebar", #selector(NSSplitViewController.toggleSidebar(_:)), "s", [.command, .control], target: .responderChain),
             item("Toggle Import Options", #selector(toggleInspector), "i", [.command, .option]),
         ])
         let window = submenu("Window", [
-            item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m", target: nil),
-            item("Zoom", #selector(NSWindow.performZoom(_:)), target: nil),
+            item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m", target: .responderChain),
+            item("Zoom", #selector(NSWindow.performZoom(_:)), target: .responderChain),
             .separator(),
             item("Andermic Photo Importer", #selector(showWindow), "0"),
         ])
@@ -156,7 +164,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let tray = NSMenu()
         tray.addItem(item("Show \(name)", #selector(showWindow)))
         tray.addItem(.separator())
-        tray.addItem(item("Quit", #selector(NSApplication.terminate(_:)), target: NSApp))
+        tray.addItem(item("Quit", #selector(NSApplication.terminate(_:)), target: .object(NSApp)))
         statusItem.menu = tray
         updateStatusItem()
     }

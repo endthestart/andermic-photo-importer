@@ -32,7 +32,7 @@ Tokens: `{YYYY}`, `{YY}`, `{MM}`, `{DD}`, `{event}`. `/` separates folder levels
 
 ## Related files
 
-RAW+JPEG pairs, Live Photo HEIC+MOV pairs, and sidecars (`.xmp`, `.dop`, `.pp3`, `.aae`, `.thm`, `.wav`) with the same name in the same folder are shown and selected as one photo. Every file is still copied and verified individually. If a filename is already taken by a different file, all of the photo's files get the same suffix, so they stay together. Full rules: [ADR-0005](docs/decisions/0005-photo-groups-selection-and-sources.md).
+RAW+JPEG pairs, Live Photo HEIC+MOV pairs, and sidecars (`.xmp`, `.dop`, `.pp3`, `.aae`, `.thm`, `.wav`) with the same name in the same folder are shown and selected as one photo. Every file is still copied and verified individually. If a filename is already taken by a different file, all of the photo's files get the same suffix, so they stay together. For a photo that is already imported, a missing sidecar is placed beside it. A sidecar that differs from the one beside it (for example, after editing) is imported with a matching copy of the photo under a shared name; the existing sidecar is never replaced. Full rules: [ADR-0005](docs/decisions/0005-photo-groups-selection-and-sources.md).
 
 ## Copy safety
 

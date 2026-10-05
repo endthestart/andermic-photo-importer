@@ -16,7 +16,7 @@ Status: accepted on 2026-10-04 with the first-release implementation. Rules belo
 ## Duplicate status
 
 - A photo or video is already imported only when a complete SHA-256 match exists anywhere under the destination root, including renamed files. Size and samples only nominate candidates. Reports are never consulted.
-- A sidecar is already imported only when an identical copy sits beside an imported copy of its photo, under the matching name (`<photo base>.xmp`, or `<photo filename>.dop` for full-filename sidecars). Identical sidecar contents elsewhere, such as template XMP files, do not count.
+- A sidecar is already imported only when an identical copy sits beside an imported copy of its photo, under the matching name (`<photo base>.xmp`, or `<photo filename>.dop` for full-filename sidecars). Every content-confirmed copy of the photo is checked. Identical sidecar contents elsewhere, such as template XMP files, do not count.
 - Group status:
   - **New:** no primary found.
   - **Partly imported:** some primaries found. Only the missing members are copied, into the group's date folder.
@@ -25,11 +25,19 @@ Status: accepted on 2026-10-04 with the first-release implementation. Rules belo
   - **Duplicate in source:** identical content occurs earlier in the same scan.
 - New and partly imported groups with a usable date are selected by default. Sidecar-only differences and undated groups are not. All statuses except Already imported can be selected manually.
 
+## Sidecars of imported photos
+
+When every photo a sidecar belongs to is already imported, the sidecar goes beside an imported copy of that photo, never into the date folder. It therefore needs no capture date, even when the photo had none.
+
+- **Missing beside the photo:** the sidecar is copied beside the photo under the associated name, which follows the imported photo's filename if that was renamed.
+- **Changed:** the associated name beside every copy holds different contents, for example because an editor updated the destination's XMP. The destination file is kept. The card's sidecar is imported together with a fresh, verified copy of the photo or photos it belongs to (stem-named sidecars bring every photo in the group; full-filename sidecars bring the photo they name). All of them share one suffix, so editors see a complete pair: `DSC_0001__<16 hex>.NEF`, `DSC_0001__<16 hex>.JPG`, `DSC_0001__<16 hex>.xmp`. This costs a second copy of the photo, so these groups are never selected by default, and the size shown includes the photo copy. The result sheet and report explain the copy.
+- **Rescan and repeat imports:** a rescan finds the sidecar beside the suffixed copy and reports the group as imported. Repeating an identical import copies nothing.
+
 ## Collisions
 
 All new members of a group are staged and verified first. If the original names are free, every member keeps them. If a name holds identical bytes, that member is recorded as present and verified. If any name holds different contents, every remaining new member gets the same suffix after its base name (`DSC_0001__<16 hex>.NEF`, `DSC_0001__<16 hex>.NEF.xmp`). The suffix comes from the member's SHA-256 for a single file, or from the sorted member hashes for a group. `-1`, `-2`, … are added until the whole set is free. Exclusive rename (`RENAME_EXCL`) publishes each file. If another app creates a name in the gap, only that file receives an individual suffix, and the report states that its association was lost. Existing files are never replaced.
 
-A new member of a partly imported group cannot share a suffix with already-imported members it does not rewrite. Its report entry and the result sheet identify any rename.
+A new photo in a partly imported group cannot share a suffix with already-imported members it does not rewrite. Its report entry and the result sheet identify any rename. Changed sidecars of already imported photos are handled as described above, not by suffixing the sidecar alone.
 
 ## Selection and import actions
 

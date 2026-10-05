@@ -69,6 +69,10 @@ struct PlannedFile {
     var date: CaptureDay? = nil
     var folder: String? = nil
     var dateOrigin = "missing"
+    /// Set when the file will be placed beside an already imported photo instead of in the date folder.
+    var besideDirectory: URL? = nil
+    /// A photo copied again only so that a changed sidecar keeps a matching photo (see `resolveSidecars`).
+    var companion = false
 }
 
 enum GroupStatus: String {
@@ -108,17 +112,19 @@ struct ImportPlan {
 
     var newCount: Int { files.filter { $0.existing == nil }.count }
     /// Files an import would copy: new files and files whose only match is elsewhere in this source.
-    func needsCopy(_ file: PlannedFile) -> Bool { file.existing.map { $0.path.hasPrefix(source.path + "/") } ?? true }
-    var missingCount: Int { files.filter { needsCopy($0) && $0.date == nil }.count }
+    func needsCopy(_ file: PlannedFile) -> Bool { file.companion || (file.existing.map { $0.path.hasPrefix(source.path + "/") } ?? true) }
+    /// Files that need a capture day: those copied into a date folder rather than beside an imported photo.
+    func needsDate(_ file: PlannedFile) -> Bool { needsCopy(file) && file.besideDirectory == nil && file.date == nil }
+    var missingCount: Int { files.filter(needsDate).count }
     var newGroups: Set<Int> { Set(groups.filter(\.isNew).map(\.id)) }
     /// New groups that can be organized now. Undated groups wait for an explicit fallback date.
     var importableNewGroups: Set<Int> { newGroups.filter { missingDates(in: [$0]) == 0 } }
     func members(_ group: PhotoGroup) -> [PlannedFile] { group.members.map { files[$0] } }
     func missingDates(in selection: Set<Int>) -> Int {
-        selection.reduce(0) { count, id in count + members(groups[id]).filter { needsCopy($0) && $0.date == nil }.count }
+        selection.reduce(0) { count, id in count + members(groups[id]).filter(needsDate).count }
     }
     func bytes(in selection: Set<Int>, newOnly: Bool = true) -> UInt64 {
-        selection.reduce(0) { total, id in total + members(groups[id]).filter { !newOnly || $0.existing == nil }.reduce(0) { $0 + $1.size } }
+        selection.reduce(0) { total, id in total + members(groups[id]).filter { !newOnly || needsCopy($0) }.reduce(0) { $0 + $1.size } }
     }
     func fileCount(in selection: Set<Int>) -> Int { selection.reduce(0) { $0 + groups[$1].members.count } }
 
@@ -155,7 +161,9 @@ struct ImportPlan {
     /// Display-only: every later import re-confirms duplicates by content.
     func applying(_ outcomes: [String: URL]) -> ImportPlan {
         var value = self
-        for index in value.files.indices { if let target = outcomes[value.files[index].source.path] { value.files[index].existing = target } }
+        for index in value.files.indices where outcomes[value.files[index].source.path] != nil {
+            value.files[index].existing = outcomes[value.files[index].source.path]; value.files[index].companion = false; value.files[index].besideDirectory = nil
+        }
         for index in value.groups.indices { value.groups[index].status = Importer.status(value.members(value.groups[index]), source: source) }
         return value
     }
@@ -380,22 +388,62 @@ enum Importer {
         return .imported
     }
 
-    /// A sidecar counts as imported only when an identical copy sits beside an imported copy of
-    /// its photo, under the name that keeps them associated. Identical sidecar content elsewhere
-    /// (for example, a template XMP shared by many photos) is not evidence.
-    static func existingSidecar(_ sidecar: PlannedFile, primaries: [(file: PlannedFile, existing: URL)], root: URL,
-                                cancellation: Cancellation, metrics: ReadMetrics?) throws -> (URL, String)? {
-        let candidates = primaries.filter { sidecar.namedPrimary == nil || $0.file.source == sidecar.namedPrimary }
-        var sourceHash: String?
-        for primary in candidates where primary.existing.path.hasPrefix(root.path + "/") {
-            let name = Grouping.sidecarName(sidecar.source, primaryNamed: sidecar.namedPrimary != nil, besidePrimaryNamed: primary.existing.lastPathComponent)
-            let candidate = primary.existing.deletingLastPathComponent().appendingPathComponent(name)
-            guard let value = try? info(candidate), value.st_mode & S_IFMT == S_IFREG, UInt64(value.st_size) == sidecar.size else { continue }
-            try assertDirectory(candidate.deletingLastPathComponent())
-            if sourceHash == nil { sourceHash = try digest(sidecar.source, cancellation: cancellation, metrics: metrics).0 }
-            if try digest(candidate, cancellation: cancellation, metrics: metrics).0 == sourceHash { return (candidate, sourceHash!) }
+    /// Where a group's new files go when some of its photos are already imported.
+    struct BesidePhoto { let directory: URL; var files: [PlannedFile]; var names: [String]; let sharedSuffix: Bool }
+    struct SidecarResolution {
+        var present: [(PlannedFile, URL, String)] = []
+        var withNewPhotos: [PlannedFile] = []
+        var beside: [BesidePhoto] = []
+    }
+
+    /// Decides each sidecar's state from the content-confirmed destination copies of its photo(s).
+    ///
+    /// - A sidecar of a photo being copied now travels with that photo into the date folder.
+    /// - Otherwise it is present only when an identical copy sits beside an imported copy of its photo
+    ///   under the associated name (`<photo base>.xmp`, or `<photo filename>.dop` for full-filename
+    ///   sidecars). Identical sidecar contents elsewhere, such as template XMP files, are not evidence.
+    /// - A missing sidecar is placed beside the imported photo under the associated name.
+    /// - A changed sidecar (that name holds different contents beside every imported copy) is imported
+    ///   with a fresh copy of the photo(s) it belongs to, all with one shared suffix, so the pair stays
+    ///   usable in editors and existing files are untouched. A rescan finds the sidecar beside that copy.
+    /// No capture date is needed for files placed beside an imported photo.
+    static func resolveSidecars(_ sidecars: [PlannedFile], primaries: [PlannedFile], matches: [URL: [URL]], root: URL,
+                                cancellation: Cancellation, metrics: ReadMetrics?) throws -> SidecarResolution {
+        var result = SidecarResolution()
+        var conflicts: [URL: (sidecars: [PlannedFile], photos: [PlannedFile])] = [:]
+        for sidecar in sidecars {
+            let related = primaries.filter { sidecar.namedPrimary == nil || $0.source == sidecar.namedPrimary }
+            let locations = related.flatMap { photo in (matches[photo.source] ?? []).filter { $0.path.hasPrefix(root.path + "/") }.map { (photo, $0) } }
+            guard !related.isEmpty, related.allSatisfy({ !(matches[$0.source] ?? []).isEmpty }), !locations.isEmpty else {
+                result.withNewPhotos.append(sidecar); continue
+            }
+            let hash = try sidecar.digest ?? digest(sidecar.source, cancellation: cancellation, metrics: metrics).0
+            var present: URL?, free: (URL, String)?
+            for (_, location) in locations {
+                let directory = location.deletingLastPathComponent()
+                let name = Grouping.sidecarName(sidecar.source, primaryNamed: sidecar.namedPrimary != nil, besidePrimaryNamed: location.lastPathComponent)
+                try assertDirectory(directory)
+                switch try nameState(directory.appendingPathComponent(name), hash: hash, size: sidecar.size, cancellation: cancellation) {
+                case .identical: present = directory.appendingPathComponent(name)
+                case .free: if free == nil { free = (directory, name) }
+                case .different: break
+                }
+                if present != nil { break }
+            }
+            var file = sidecar; file.digest = hash
+            if let present { result.present.append((file, present, hash)) }
+            else if let (directory, name) = free { result.beside.append(BesidePhoto(directory: directory, files: [file], names: [name], sharedSuffix: false)) }
+            else {
+                let directory = locations[0].1.deletingLastPathComponent()
+                conflicts[directory, default: ([], [])].sidecars.append(file)
+                for photo in related where !conflicts[directory]!.photos.contains(where: { $0.source == photo.source }) { conflicts[directory]!.photos.append(photo) }
+            }
         }
-        return nil
+        for (directory, conflict) in conflicts.sorted(by: { $0.key.path < $1.key.path }) {
+            let files = conflict.photos + conflict.sidecars
+            result.beside.append(BesidePhoto(directory: directory, files: files, names: files.map(\.source.lastPathComponent), sharedSuffix: true))
+        }
+        return result
     }
 
     /// Preview an import. Reads bounded headers and samples; never writes.
@@ -426,7 +474,7 @@ enum Importer {
         var checked = 0
         for (groupID, sourceGroup) in sourceGroups.enumerated() {
             var indices: [Int] = []
-            var matchedPrimaries: [(file: PlannedFile, existing: URL)] = []
+            var matches: [URL: [URL]] = [:]
             let sidecarPrimary = Dictionary(sourceGroup.sidecars.map { ($0.url, $0.primary) }, uniquingKeysWith: { a, _ in a })
             for url in sourceGroup.members {
                 checked += 1
@@ -445,15 +493,14 @@ enum Importer {
                 var file = PlannedFile(source: url, role: role, group: groupID, namedPrimary: sidecarPrimary[url] ?? nil, size: size,
                                        fingerprint: sample, sourceInfo: version, digest: nil, existing: nil,
                                        ownDate: metadata[url.path]?.0, ownDateOrigin: metadata[url.path]?.1)
-                if role == .sidecar {
-                    if let (match, hash) = try existingSidecar(file, primaries: matchedPrimaries, root: root, cancellation: cancellation, metrics: metrics) {
-                        file.existing = match; file.digest = hash
-                    }
-                } else {
+                if role != .sidecar {
                     var hash: String?
-                    file.existing = try library.match(source: url, size: size, fingerprint: sample, hash: &hash, cancellation: cancellation, metrics: metrics)
-                    if let match = file.existing { matchedPrimaries.append((file, match)) }
-                    else {
+                    // Every confirmed copy matters when sidecars must be found beside one of them.
+                    let found = try library.matches(source: url, size: size, fingerprint: sample, hash: &hash, all: !sourceGroup.sidecars.isEmpty,
+                                                    cancellation: cancellation, metrics: metrics)
+                    matches[url] = found
+                    file.existing = found.first
+                    if found.isEmpty {
                         for peer in seen[key] ?? [] {
                             if hash == nil { hash = try digest(url, cancellation: cancellation, metrics: metrics).0 }
                             if try digest(peer, cancellation: cancellation, metrics: metrics).0 == hash { file.existing = peer; break }
@@ -464,6 +511,17 @@ enum Importer {
                 }
                 guard stable(version, try info(url)) else { throw ImportError("Source changed during preview. Scan again.") }
                 indices.append(planned.count); planned.append(file)
+            }
+            let primaryIndices = indices.filter { planned[$0].role != .sidecar }, sidecarIndices = indices.filter { planned[$0].role == .sidecar }
+            let resolution = try resolveSidecars(sidecarIndices.map { planned[$0] }, primaries: primaryIndices.map { planned[$0] }, matches: matches,
+                                                 root: root, cancellation: cancellation, metrics: metrics)
+            func index(_ file: PlannedFile) -> Int { indices.first { planned[$0].source == file.source }! }
+            for (file, target, hash) in resolution.present { planned[index(file)].existing = target; planned[index(file)].digest = hash }
+            for placement in resolution.beside {
+                for file in placement.files {
+                    planned[index(file)].besideDirectory = placement.directory
+                    if file.role != .sidecar { planned[index(file)].companion = true } else { planned[index(file)].digest = file.digest }
+                }
             }
             let first = planned[indices[0]]
             groups.append(PhotoGroup(id: groupID, name: first.source.deletingPathExtension().lastPathComponent, directory: first.source.deletingLastPathComponent(),
@@ -533,43 +591,48 @@ enum Importer {
         return try digest(target, cancellation: cancellation).0 == hash ? .identical : .different
     }
 
-    /// Publish verified staging files under their original names. If any name already holds
-    /// different contents, every file in the group receives the same suffix so related files
-    /// stay associated. Exclusive rename never replaces an existing file.
+    /// Publish verified staging files under `desired` names (original names by default). If any name
+    /// already holds different contents, or `sharedSuffix` is set, every file receives the same suffix
+    /// so related files stay associated. Exclusive rename never replaces an existing file.
     /// `results` receives each file as soon as it is visible under its final name, so a failure
     /// partway through a group still reports every published file.
-    static func publish(_ staged: [StagedFile], in directory: URL, notes: inout [String], results: inout [(StagedFile, URL, Bool)]) throws {
+    static func publish(_ staged: [StagedFile], in directory: URL, desired: [String]? = nil, sharedSuffix: Bool = false, reason: String? = nil,
+                        notes: inout [String], results: inout [(StagedFile, URL, Bool)]) throws {
         let never = Cancellation()
-        var remaining: [StagedFile] = []
-        for item in staged {
-            if try nameState(directory.appendingPathComponent(item.file.source.lastPathComponent), hash: item.hash, size: item.file.size, cancellation: never) == .identical {
+        var remaining: [(item: StagedFile, name: String)] = []
+        for (index, item) in staged.enumerated() {
+            let name = desired?[index] ?? item.file.source.lastPathComponent
+            if !sharedSuffix, try nameState(directory.appendingPathComponent(name), hash: item.hash, size: item.file.size, cancellation: never) == .identical {
                 try? fm.removeItem(at: item.staging)
-                results.append((item, directory.appendingPathComponent(item.file.source.lastPathComponent), false))
-            } else { remaining.append(item) }
+                results.append((item, directory.appendingPathComponent(name), false))
+            } else { remaining.append((item, name)) }
         }
         guard !remaining.isEmpty else { return }
         func names(_ suffix: String?) -> [String] {
-            remaining.map { item in
-                suffix.map { Grouping.suffixed(item.file.source.lastPathComponent, suffix: $0, primaryNamedSidecar: item.file.namedPrimary != nil) }
-                    ?? item.file.source.lastPathComponent
+            remaining.map { entry in
+                suffix.map { Grouping.suffixed(entry.name, suffix: $0, primaryNamedSidecar: entry.item.file.namedPrimary != nil) } ?? entry.name
             }
         }
-        let groupHash = remaining.count == 1 ? remaining[0].hash
-            : hex(SHA256.hash(data: Data(remaining.map(\.hash).sorted().joined(separator: "\n").utf8)))
+        let groupHash = remaining.count == 1 ? remaining[0].item.hash
+            : hex(SHA256.hash(data: Data(remaining.map(\.item.hash).sorted().joined(separator: "\n").utf8)))
         var chosen: [String]?
-        for attempt in -1..<10000 {
+        for attempt in (sharedSuffix ? 0 : -1)..<10000 {
             let candidate = names(attempt < 0 ? nil : String(groupHash.prefix(16)) + (attempt == 0 ? "" : "-\(attempt)"))
             var usable = true
-            for (item, name) in zip(remaining, candidate) where try nameState(directory.appendingPathComponent(name), hash: item.hash, size: item.file.size, cancellation: never) != .free {
+            for (entry, name) in zip(remaining, candidate) where try nameState(directory.appendingPathComponent(name), hash: entry.item.hash, size: entry.item.file.size, cancellation: never) != .free {
                 usable = false; break
             }
             if usable { chosen = candidate; break }
         }
-        guard let finalNames = chosen else { throw ImportError("Too many filename collisions for \(remaining[0].file.source.lastPathComponent).") }
+        guard let finalNames = chosen else { throw ImportError("Too many filename collisions for \(remaining[0].item.file.source.lastPathComponent).") }
         if finalNames != names(nil) {
-            notes.append("\(remaining.map { $0.file.source.lastPathComponent }.joined(separator: ", ")): a different file already used a name in \(directory.path); imported as \(finalNames.joined(separator: ", ")).")
+            notes.append(reason.map { "\($0) Imported as \(finalNames.joined(separator: ", ")) in \(directory.path)." }
+                ?? "\(remaining.map { $0.item.file.source.lastPathComponent }.joined(separator: ", ")): a different file already used a name in \(directory.path); imported as \(finalNames.joined(separator: ", ")).")
+        } else if zip(remaining.map(\.item.file.source.lastPathComponent), finalNames).contains(where: { $0 != $1 }) {
+            notes.append("\(remaining.map { $0.item.file.source.lastPathComponent }.joined(separator: ", ")): placed beside the imported photo as \(finalNames.joined(separator: ", ")) in \(directory.path).")
         }
-        for (item, name) in zip(remaining, finalNames) {
+        let remainingItems = remaining.map(\.item)
+        for (item, name) in zip(remainingItems, finalNames) {
             try assertDirectory(directory)
             var target = directory.appendingPathComponent(name), isNew = true, attempt = 0
             // macOS exclusive rename publishes without overwriting, even when a filename races.
@@ -629,23 +692,27 @@ enum Importer {
             for (index, group) in chosen.enumerated() {
                 try cancellation.check(); try assertDirectory(plan.root)
                 progress(ImportProgress("Importing \(index + 1) of \(chosen.count): \(group.name)", fraction: 0.9 * Double(copiedBytes) / Double(totalBytes)))
-                var verified: [(PlannedFile, URL, String)] = [], toCopy: [PlannedFile] = [], matchedPrimaries: [(file: PlannedFile, existing: URL)] = []
-                for file in plan.members(group) {
+                var verified: [(PlannedFile, URL, String)] = [], toCopy: [PlannedFile] = [], matches: [URL: [URL]] = [:]
+                let members = plan.members(group)
+                for file in members {
                     guard stable(file.sourceInfo, try info(file.source)) else { throw ImportError("\(file.source.lastPathComponent) changed since the preview. Scan again.") }
-                    if file.role == .sidecar {
-                        if let (match, hash) = try existingSidecar(file, primaries: matchedPrimaries, root: plan.root, cancellation: cancellation, metrics: nil) {
-                            verified.append((file, match, hash))
-                        } else { toCopy.append(file) }
-                        continue
-                    }
+                }
+                let sidecars = members.filter { $0.role == .sidecar }
+                for file in members where file.role != .sidecar {
                     // Rehash candidates at import time; preview samples are never proof for a skip.
                     var hash: String?
-                    if let match = try library.match(source: file.source, size: file.size, fingerprint: file.fingerprint, hash: &hash, cancellation: cancellation) {
+                    let found = try library.matches(source: file.source, size: file.size, fingerprint: file.fingerprint, hash: &hash, all: !sidecars.isEmpty, cancellation: cancellation)
+                    matches[file.source] = found
+                    if let match = found.first {
                         guard let confirmed = hash, file.digest == nil || confirmed == file.digest,
                               stable(file.sourceInfo, try info(file.source)) else { throw ImportError("Source changed since the preview. Scan again.") }
-                        verified.append((file, match, confirmed)); matchedPrimaries.append((file, match))
+                        verified.append((file, match, confirmed))
                     } else { toCopy.append(file) }
                 }
+                let resolution = try resolveSidecars(sidecars, primaries: members.filter { $0.role != .sidecar }, matches: matches, root: plan.root,
+                                                     cancellation: cancellation, metrics: nil)
+                verified += resolution.present
+                toCopy += resolution.withNewPhotos
                 var published: [(StagedFile, URL, Bool)] = []
                 func record() {
                     for (file, target, hash) in verified {
@@ -662,13 +729,12 @@ enum Importer {
                     }
                     verified = []; published = []
                 }
-                if !toCopy.isEmpty {
-                    guard let folder = group.folder else { throw ImportError("\(group.name) has no capture date. Choose a fallback date and scan again.") }
-                    let directory = try makeFolder(root: plan.root, relative: folder)
+                /// Stage every file for one folder, then publish them together.
+                func copy(_ files: [PlannedFile], into directory: URL, names: [String]?, sharedSuffix: Bool, reason: String?) throws {
                     var staged: [StagedFile] = []
                     // Remove staging files of an unfinished group; completed groups are kept.
                     defer { for item in staged where fm.fileExists(atPath: item.staging.path) { try? fm.removeItem(at: item.staging) } }
-                    for file in toCopy {
+                    for file in files {
                         staged.append(try stage(file, in: directory, cancellation: cancellation) { bytes in
                             copiedBytes += bytes
                             if copiedBytes % (32 * 1024 * 1024) < bytes {
@@ -677,9 +743,22 @@ enum Importer {
                         })
                     }
                     // Publishing a verified group is not interrupted by cancellation.
-                    do { try publish(staged, in: directory, notes: &receipt.notes, results: &published) }
+                    let before = published.count
+                    do { try publish(staged, in: directory, desired: names, sharedSuffix: sharedSuffix, reason: reason, notes: &receipt.notes, results: &published) }
                     catch { record(); throw error }
-                    for (item, target, isNew) in published where isNew { library.add(target, hash: item.hash, size: item.file.size, fingerprint: item.file.fingerprint) }
+                    for (item, target, isNew) in published[before...] where isNew { library.add(target, hash: item.hash, size: item.file.size, fingerprint: item.file.fingerprint) }
+                }
+                if !toCopy.isEmpty {
+                    guard let folder = group.folder else { throw ImportError("\(group.name) has no capture date. Choose a fallback date and scan again.") }
+                    try copy(toCopy, into: try makeFolder(root: plan.root, relative: folder), names: nil, sharedSuffix: false, reason: nil)
+                }
+                for placement in resolution.beside {
+                    guard placement.directory.path.hasPrefix(plan.root.path + "/") else { throw ImportError("A photo's folder is outside the destination. Scan again.") }
+                    try assertDirectory(placement.directory)
+                    let changed = placement.files.filter { $0.role == .sidecar }.map(\.source.lastPathComponent).joined(separator: ", ")
+                    let photos = placement.files.filter { $0.role != .sidecar }.map(\.source.lastPathComponent).joined(separator: ", ")
+                    try copy(placement.files, into: placement.directory, names: placement.names, sharedSuffix: placement.sharedSuffix,
+                             reason: placement.sharedSuffix ? "\(changed) differs from the sidecar beside the imported photo, which was kept. The card's version was imported with a matching copy of \(photos)." : nil)
                 }
                 record()
                 try saveReceipt()
@@ -722,6 +801,11 @@ final class LibraryIndex {
         }
     }
     func match(source: URL, size: UInt64, fingerprint: String, hash: inout String?, cancellation: Cancellation, metrics: ReadMetrics? = nil) throws -> URL? {
+        try matches(source: source, size: size, fingerprint: fingerprint, hash: &hash, all: false, cancellation: cancellation, metrics: metrics).first
+    }
+    /// Content-confirmed copies of `source`, sorted by path; only the first unless `all` is set.
+    func matches(source: URL, size: UInt64, fingerprint: String, hash: inout String?, all: Bool, cancellation: Cancellation, metrics: ReadMetrics? = nil) throws -> [URL] {
+        var found: [URL] = []
         if byFingerprint[size] == nil {
             var group: [String: [URL]] = [:]
             for url in bySize[size] ?? [] {
@@ -732,7 +816,7 @@ final class LibraryIndex {
             }
             byFingerprint[size] = group
         }
-        for url in byFingerprint[size]?[fingerprint] ?? [] {
+        for url in (byFingerprint[size]?[fingerprint] ?? []).sorted(by: { $0.path < $1.path }) {
             try cancellation.check()
             // Each match is read again, so deleted or modified duplicates cannot cause unsafe skips.
             try Importer.assertDirectory(url.deletingLastPathComponent())
@@ -752,9 +836,9 @@ final class LibraryIndex {
                 candidate = try Importer.digest(url, cancellation: cancellation, metrics: metrics).0
                 cache[url] = (current, candidate)
             }
-            if candidate == hash { return url }
+            if candidate == hash { found.append(url); if !all { break } }
         }
-        return nil
+        return found
     }
     func add(_ url: URL, hash: String, size: UInt64, fingerprint: String) {
         bySize[size, default: []].append(url)

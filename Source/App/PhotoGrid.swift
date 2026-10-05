@@ -234,6 +234,12 @@ final class SectionHeader: NSView, NSCollectionViewElement {
     required init?(coder: NSCoder) { fatalError() }
 }
 
+/// The grid's own ⌘A selects all new photos (checkmarks), not collection-view items.
+final class PhotoCollectionView: NSCollectionView {
+    var onSelectAll: (() -> Void)?
+    override func selectAll(_ sender: Any?) { onSelectAll?() }
+}
+
 /// A scroll view that accepts a dropped folder as the import source.
 final class DropScrollView: NSScrollView {
     var onDropFolder: ((URL) -> Void)?

@@ -68,7 +68,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     let datePopup = NSPopUpButton(), typePopup = NSPopUpButton()
     let showImported = NSButton(checkboxWithTitle: "Show Imported", target: nil, action: nil)
     let sizeSlider = NSSlider(value: 170, minValue: 110, maxValue: 300, target: nil, action: nil)
-    let collection = NSCollectionView()
+    let collection = PhotoCollectionView()
     let gridScroll = DropScrollView()
     let emptyState = NSTextField(wrappingLabelWithString: "")
     let progressBar = NSProgressIndicator()
@@ -211,6 +211,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         collection.collectionViewLayout = layout
         collection.dataSource = self; collection.delegate = self
         collection.isSelectable = false
+        collection.onSelectAll = { [weak self] in self?.selectAllNew(nil) }
         collection.backgroundColors = [.clear]
         collection.register(GroupTileItem.self, forItemWithIdentifier: GroupTileItem.identifier)
         collection.register(SectionHeader.self, forSupplementaryViewOfKind: NSCollectionView.elementKindSectionHeader, withIdentifier: SectionHeader.identifier)
@@ -692,7 +693,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
                 let destination = group.folder.map { "\(plan.root.lastPathComponent)/\($0)/" }
                 let thumbnail = primaries.first { $0.role == .image }?.source ?? primaries[0].source
                 return GridEntry(id: group.id, name: group.name, thumbnail: thumbnail, kinds: kinds, fileCount: members.count,
-                                 detail: "\(date) · \(files)", status: group.status, missingDate: group.date == nil, destination: destination,
+                                 detail: "\(date) · \(files)", status: group.status, missingDate: plan.missingDates(in: [group.id]) > 0, destination: destination,
                                  dateOrigin: group.date == nil ? nil : group.dateOrigin)
             }
             let fresh = visible.filter(\.isNew).map(entry)
@@ -840,7 +841,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         for control in [presetPopup, destinationButton, structurePopup, templateField, eventField, fallbackCheck, cardBehaviorPopup] as [NSControl] { control.isEnabled = editing }
         templateField.isEditable = editing
         fallbackPicker.isEnabled = editing && fallbackCheck.state == .on
-        fallbackBox.isHidden = !(plan?.groups.contains { $0.date == nil && $0.isNew } ?? false) && fallbackCheck.state == .off
+        // Show the date control whenever any importable photo needs one (files placed beside an
+        // already imported photo never do), or while a fallback is in effect.
+        fallbackBox.isHidden = !needsFallback && fallbackCheck.state == .off
         openEditor.title = "Open new folders in \(settings.editorName)"
         openEditor.isEnabled = editing && settings.editorAvailable
         editorNote.stringValue = settings.editorAvailable ? "" : "\(settings.editorName) was not found. Choose an editor in Advanced to enable this."
@@ -868,20 +871,25 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         var folders: [String: (groups: Int, files: Int)] = [:]
         for id in chosen {
             let group = plan.groups[id]
-            let newFiles = plan.members(group).filter { $0.existing == nil }.count
-            guard newFiles > 0 else { continue }
-            let key = group.folder ?? "⚠︎ needs a capture date"
-            folders[key, default: (0, 0)].groups += 1; folders[key]!.files += newFiles
+            var counted = Set<String>()
+            for file in plan.members(group) where plan.needsCopy(file) {
+                let key: String
+                if let beside = file.besideDirectory { key = String(beside.path.dropFirst(plan.root.path.count + 1)) + " (beside imported photo)" }
+                else { key = group.folder ?? "⚠︎ needs a capture date" }
+                if counted.insert(key).inserted { folders[key, default: (0, 0)].groups += 1 }
+                folders[key, default: (0, 0)].files += 1
+            }
         }
         if folders.isEmpty { previewLabel.stringValue = "Nothing new to import."; return }
         let lines = folders.keys.sorted().prefix(8).map { key in
-            "\(key.hasPrefix("⚠︎") ? key : base + key + "/")\n   \(folders[key]!.groups) photos · \(folders[key]!.files) files"
+            "\(key.hasPrefix("⚠︎") ? key : base + key.replacingOccurrences(of: " (beside", with: "/ (beside").appending(key.contains("(beside") ? "" : "/"))\n   \(folders[key]!.groups) \(folders[key]!.groups == 1 ? "photo" : "photos") · \(folders[key]!.files) \(folders[key]!.files == 1 ? "file" : "files")"
         }
         previewLabel.stringValue = (selection.isEmpty ? "All new photos:\n" : "Selected photos:\n") + lines.joined(separator: "\n")
             + (folders.count > 8 ? "\n…and \(folders.count - 8) more folders" : "")
     }
 
     var visibleSelection: Set<Int> { selection.intersection(visibleIDs) }
+    var needsFallback: Bool { plan.map { plan in plan.groups.contains { $0.status != .imported && plan.missingDates(in: [$0.id]) > 0 } } ?? false }
 
     var planIsCurrent: Bool {
         guard let plan, let source, organizeError == nil else { return false }
