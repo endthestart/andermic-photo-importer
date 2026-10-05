@@ -14,12 +14,14 @@ architecture="$(uname -m)"
 case "$architecture" in arm64|x86_64) ;; *) echo "Unsupported architecture: $architecture" >&2; exit 1 ;; esac
 app_path="dist/Andermic Photo Importer.app"
 mkdir -p build dist
+./scripts/build-metadata-helper.sh
+helper="build/metadata-helper/$architecture/MetadataHelper"
 rm -rf "$app_path"
 mkdir -p "$app_path/Contents/MacOS" "$app_path/Contents/Resources"
 
 xcrun swiftc -swift-version 5 -O -target "${architecture}-apple-macosx13.0" \
     -module-cache-path build/module-cache \
-    Source/ImportCore.swift Source/App.swift Source/main.swift \
+    Source/Core/*.swift Source/App/*.swift \
     -o "$app_path/Contents/MacOS/PhotoImport"
 
 iconset="build/AppIcon.iconset"
@@ -49,12 +51,21 @@ cat > "$app_path/Contents/Info.plist" <<PLIST
 </dict></plist>
 PLIST
 /usr/bin/plutil -lint "$app_path/Contents/Info.plist"
+cp LICENSE "$app_path/Contents/Resources/LICENSE.txt"
+cp THIRD_PARTY.md "$app_path/Contents/Resources/THIRD_PARTY.md"
+# The self-contained metadata reader: pinned Perl runtime, ExifTool, and their licenses.
+/usr/bin/ditto "$helper" "$app_path/Contents/Resources/MetadataHelper"
 /usr/bin/xattr -cr "$app_path"
 identity="${SIGNING_IDENTITY:--}"
-if [[ "$identity" == '-' ]]; then
-    /usr/bin/codesign --force --sign - "$app_path"
-else
-    /usr/bin/codesign --force --options runtime --timestamp --sign "$identity" "$app_path"
-fi
+sign() {
+    if [[ "$identity" == '-' ]]; then
+        /usr/bin/codesign --force --sign - "$@"
+    else
+        /usr/bin/codesign --force --options runtime --timestamp --sign "$identity" "$@"
+    fi
+}
+# Sign nested code inside-out: the Perl interpreter and its compiled extension modules, then the app.
+while IFS= read -r -d '' binary; do sign "$binary"; done < <(find "$app_path/Contents/Resources/MetadataHelper" -type f \( -name perl -o -name '*.bundle' \) -print0)
+sign "$app_path"
 /usr/bin/codesign --verify --deep --strict "$app_path"
 echo "Built Andermic Photo Importer $version ($architecture)."
