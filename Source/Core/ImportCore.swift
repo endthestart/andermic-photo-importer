@@ -533,6 +533,14 @@ enum Importer {
         return try plan.organized(template: settings.folderTemplate, event: event, fallback: fallback)
     }
 
+    /// A folder beside an imported photo may be the destination root itself or any real
+    /// directory inside it; paths outside the root and symlinked components are refused.
+    static func validatePlacement(_ directory: URL, root: URL) throws {
+        let folder = directory.standardizedFileURL.path, base = root.standardizedFileURL.path
+        guard folder == base || folder.hasPrefix(base + "/") else { throw ImportError("A photo's folder is outside the destination. Scan again.") }
+        try assertDirectory(directory)
+    }
+
     static func makeFolder(root: URL, relative: String) throws -> URL {
         try assertDirectory(root)
         var directory = root
@@ -744,21 +752,27 @@ enum Importer {
                     }
                     // Publishing a verified group is not interrupted by cancellation.
                     let before = published.count
-                    do { try publish(staged, in: directory, desired: names, sharedSuffix: sharedSuffix, reason: reason, notes: &receipt.notes, results: &published) }
-                    catch { record(); throw error }
+                    try publish(staged, in: directory, desired: names, sharedSuffix: sharedSuffix, reason: reason, notes: &receipt.notes, results: &published)
                     for (item, target, isNew) in published[before...] where isNew { library.add(target, hash: item.hash, size: item.file.size, fingerprint: item.file.fingerprint) }
                 }
-                if !toCopy.isEmpty {
-                    guard let folder = group.folder else { throw ImportError("\(group.name) has no capture date. Choose a fallback date and scan again.") }
-                    try copy(toCopy, into: try makeFolder(root: plan.root, relative: folder), names: nil, sharedSuffix: false, reason: nil)
-                }
-                for placement in resolution.beside {
-                    guard placement.directory.path.hasPrefix(plan.root.path + "/") else { throw ImportError("A photo's folder is outside the destination. Scan again.") }
-                    try assertDirectory(placement.directory)
-                    let changed = placement.files.filter { $0.role == .sidecar }.map(\.source.lastPathComponent).joined(separator: ", ")
-                    let photos = placement.files.filter { $0.role != .sidecar }.map(\.source.lastPathComponent).joined(separator: ", ")
-                    try copy(placement.files, into: placement.directory, names: placement.names, sharedSuffix: placement.sharedSuffix,
-                             reason: placement.sharedSuffix ? "\(changed) differs from the sidecar beside the imported photo, which was kept. The card's version was imported with a matching copy of \(photos)." : nil)
+                do {
+                    if !toCopy.isEmpty {
+                        guard let folder = group.folder else { throw ImportError("\(group.name) has no capture date. Choose a fallback date and scan again.") }
+                        try copy(toCopy, into: try makeFolder(root: plan.root, relative: folder), names: nil, sharedSuffix: false, reason: nil)
+                    }
+                    for placement in resolution.beside {
+                        try validatePlacement(placement.directory, root: plan.root)
+                        let changed = placement.files.filter { $0.role == .sidecar }.map(\.source.lastPathComponent).joined(separator: ", ")
+                        let photos = placement.files.filter { $0.role != .sidecar }.map(\.source.lastPathComponent).joined(separator: ", ")
+                        progress(ImportProgress("Placing \(placement.files.map(\.source.lastPathComponent).joined(separator: ", ")) beside the imported photo",
+                                                fraction: 0.9 * Double(copiedBytes) / Double(totalBytes)))
+                        try copy(placement.files, into: placement.directory, names: placement.names, sharedSuffix: placement.sharedSuffix,
+                                 reason: placement.sharedSuffix ? "\(changed) differs from the sidecar beside the imported photo, which was kept. The card's version was imported with a matching copy of \(photos)." : nil)
+                    }
+                } catch {
+                    // Any later step of this group failed or was cancelled: everything already
+                    // published and verified (and every confirmed existing file) is still reported.
+                    record(); throw error
                 }
                 record()
                 try saveReceipt()

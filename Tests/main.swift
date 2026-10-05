@@ -291,6 +291,99 @@ let sideRepeat = try run(sideRescan, selection: Set(sideRescan.groups.map(\.id))
 let afterRepeat = try Importer.files(in: sideLibrary, allowed: nil, cancellation: cancellation).0.count
 try check(sideRepeat.copied == 0 && afterRepeat == 12, "repeating an identical import creates zero additional copies")
 
+// MARK: Sidecars beside photos directly in the destination root
+let rootCard = root.appendingPathComponent("RootCard"), rootLibrary = root.appendingPathComponent("RootLibrary")
+try fm.createDirectory(at: rootLibrary, withIntermediateDirectories: true)
+var rootSettings = Settings(); rootSettings.destination = rootLibrary.path
+let rootPhotoA = try jpeg("ROOT_1.JPG", day: "2025:11:01 09:00:00", color: 91, in: rootCard)
+let rootPhotoB = try jpeg("ROOT_2.JPG", day: "2025:11:01 10:00:00", color: 92, in: rootCard)
+let rootMissing = rootCard.appendingPathComponent("ROOT_1.xmp"); try Data("<label>root missing</label>".utf8).write(to: rootMissing)
+let rootChanged = rootCard.appendingPathComponent("ROOT_2.xmp"); try Data("<rating>2</rating> card version".utf8).write(to: rootChanged)
+// Photos placed straight into the root earlier, for example by another tool.
+try fm.copyItem(at: rootPhotoA, to: rootLibrary.appendingPathComponent("ROOT_1.JPG"))
+try fm.copyItem(at: rootPhotoB, to: rootLibrary.appendingPathComponent("ROOT_2.JPG"))
+let rootEdited = Data("<rating>5</rating> edited in the destination".utf8)
+try rootEdited.write(to: rootLibrary.appendingPathComponent("ROOT_2.xmp"))
+let rootPlan = try plan(event: "", source: rootCard, settings: rootSettings)
+let rootSidecars = rootPlan.files.filter { $0.role == .sidecar }
+try check(rootPlan.groups.allSatisfy { $0.status == .sidecarChanged } && rootSidecars.allSatisfy { $0.besideDirectory?.standardizedFileURL.path == rootLibrary.standardizedFileURL.path }
+          && rootPlan.missingDates(in: Set(rootPlan.groups.map(\.id))) == 0, "sidecars of photos directly in the destination root are placed in the root")
+let rootResult = try run(rootPlan, selection: Set(rootPlan.groups.map(\.id)))
+let rootNames = try fm.contentsOfDirectory(atPath: rootLibrary.path).filter { !$0.hasPrefix(".") }
+let rootCompanions = rootNames.filter { $0.hasPrefix("ROOT_2__") }
+try check(rootResult.copied == 3 && (try bytes(rootLibrary.appendingPathComponent("ROOT_1.xmp"))) == (try bytes(rootMissing)), "a missing sidecar is restored beside its root-level photo")
+try check(try bytes(rootLibrary.appendingPathComponent("ROOT_2.xmp")) == rootEdited && rootCompanions.count == 2 && Set(rootCompanions.map { $0.components(separatedBy: ".")[0] }).count == 1
+          && (try bytes(rootLibrary.appendingPathComponent(rootCompanions.first { $0.hasSuffix(".xmp") }!))) == (try bytes(rootChanged)), "a changed root-level sidecar keeps the edited file and arrives with a matching photo copy")
+let rootRescan = try plan(event: "", source: rootCard, settings: rootSettings)
+let rootRepeat = try run(rootRescan, selection: Set(rootRescan.groups.map(\.id)))
+try check(rootRescan.groups.allSatisfy { $0.status == .imported } && rootRepeat.copied == 0
+          && (try fm.contentsOfDirectory(atPath: rootLibrary.path).filter { !$0.hasPrefix(".") }.count) == 6, "root-level sidecars are recognized on rescan and a repeat copies nothing")
+try check((try? Importer.validatePlacement(rootLibrary, root: rootLibrary)) != nil, "the destination root itself is a valid placement folder")
+try rejects("a placement outside the destination is refused") { try Importer.validatePlacement(rootCard, root: rootLibrary) }
+let lookAlike = root.appendingPathComponent("RootLibrary2"); try fm.createDirectory(at: lookAlike, withIntermediateDirectories: true)
+try rejects("a sibling folder sharing the root's name prefix is refused") { try Importer.validatePlacement(lookAlike, root: rootLibrary) }
+let linkedPlacement = rootLibrary.appendingPathComponent("Linked"); try fm.createSymbolicLink(at: linkedPlacement, withDestinationURL: rootCard)
+try rejects("a symlinked placement folder inside the root is refused") { try Importer.validatePlacement(linkedPlacement, root: rootLibrary) }
+try fm.removeItem(at: linkedPlacement)
+
+// MARK: A group with two placements where the second one fails or is cancelled
+let twoCard = root.appendingPathComponent("TwoPlacementCard"), twoLibrary = root.appendingPathComponent("TwoPlacementLibrary")
+try fm.createDirectory(at: twoLibrary, withIntermediateDirectories: true)
+var twoSettings = Settings(); twoSettings.destination = twoLibrary.path
+_ = try jpeg("TWO_1.JPG", day: "2025:11:02 09:00:00", color: 93, in: twoCard)
+try Data([2, 2, 2, 2, 9]).write(to: twoCard.appendingPathComponent("TWO_1.NEF"))
+let jpegSidecar = twoCard.appendingPathComponent("TWO_1.JPG.xmp"), rawSidecar = twoCard.appendingPathComponent("TWO_1.NEF.xmp")
+try Data("<label>jpeg</label>".utf8).write(to: jpegSidecar); try Data("<label>raw</label>".utf8).write(to: rawSidecar)
+try check(try run(plan(event: "", source: twoCard, settings: twoSettings)).copied == 4, "two-placement fixture imports")
+// Keep the RAW in its own folder and remove both sidecars from the destination.
+let twoDay = twoLibrary.appendingPathComponent("2025/11/02"), rawFolder = twoLibrary.appendingPathComponent("RAW")
+try fm.createDirectory(at: rawFolder, withIntermediateDirectories: true)
+try fm.moveItem(at: twoDay.appendingPathComponent("TWO_1.NEF"), to: rawFolder.appendingPathComponent("TWO_1.NEF"))
+let rawBefore = try bytes(rawFolder.appendingPathComponent("TWO_1.NEF")), jpegBefore = try bytes(twoDay.appendingPathComponent("TWO_1.JPG"))
+func removeDestinationSidecars() throws {
+    for url in [twoDay.appendingPathComponent("TWO_1.JPG.xmp"), rawFolder.appendingPathComponent("TWO_1.NEF.xmp")] where fm.fileExists(atPath: url.path) { try fm.removeItem(at: url) }
+}
+try removeDestinationSidecars()
+func partialFiles() throws -> [String] { try fm.subpathsOfDirectory(atPath: twoLibrary.path).filter { $0.hasSuffix(".partial") } }
+func checkFirstPlacementKept(_ failure: ImportFailure?, cancelled: Bool, _ label: String) throws {
+    let receipt = try failure.map { try reportDecoder.decode(Receipt.self, from: Data(contentsOf: $0.receipt)) }
+    let placed = twoDay.appendingPathComponent("TWO_1.JPG.xmp")
+    try check(failure?.cancelled == cancelled && failure?.copied == 1 && failure?.skipped == 2 && failure?.outcomes[jpegSidecar.path] == placed
+              && failure?.outcomes.count == 3 && failure?.outcomes[rawSidecar.path] == nil, "\(label): the failure reports the first placement and the verified photos")
+    try check(receipt.map { !$0.complete && $0.cancelled == cancelled && $0.error != nil && $0.entries.count == 3
+              && $0.entries.contains { $0.destination == placed.path && $0.action == "copied and verified" } } == true, "\(label): the receipt records every published and verified file")
+    try check(try bytes(placed) == bytes(jpegSidecar) && !fm.fileExists(atPath: rawFolder.appendingPathComponent("TWO_1.NEF.xmp").path)
+              && (try bytes(rawFolder.appendingPathComponent("TWO_1.NEF"))) == rawBefore && (try bytes(twoDay.appendingPathComponent("TWO_1.JPG"))) == jpegBefore
+              && (try partialFiles()).isEmpty, "\(label): the published sidecar and existing photos keep their bytes and no staging file remains")
+}
+func retryCompletes(_ label: String) throws {
+    let retryPlan = try plan(event: "", source: twoCard, settings: twoSettings)
+    let retry = try run(retryPlan, selection: Set(retryPlan.groups.map(\.id)))
+    let after = try plan(event: "", source: twoCard, settings: twoSettings)
+    try check(retry.copied == 1 && (try bytes(rawFolder.appendingPathComponent("TWO_1.NEF.xmp"))) == (try bytes(rawSidecar))
+              && after.groups.allSatisfy { $0.status == .imported } && (try run(after, selection: Set(after.groups.map(\.id)))).copied == 0, "\(label): retry places only the remaining sidecar, then repeats copy nothing")
+}
+let twoPlan = try plan(event: "", source: twoCard, settings: twoSettings)
+try check(Set(twoPlan.files.compactMap { $0.besideDirectory?.lastPathComponent }) == ["02", "RAW"], "each sidecar is placed beside its own photo, in two folders")
+// Second placement fails while staging: its folder cannot be written.
+chmod(rawFolder.path, 0o555)
+var stagingFailure: ImportFailure?
+do { _ = try run(twoPlan, selection: Set(twoPlan.groups.map(\.id))) } catch let error as ImportFailure { stagingFailure = error }
+chmod(rawFolder.path, 0o755)
+try checkFirstPlacementKept(stagingFailure, cancelled: false, "staging failure")
+try retryCompletes("after a staging failure")
+// Second placement is cancelled after the first has been published.
+try removeDestinationSidecars()
+let cancelPlan = try plan(event: "", source: twoCard, settings: twoSettings)
+let placementStop = Cancellation()
+var cancelledFailure: ImportFailure?
+do {
+    _ = try run(cancelPlan, selection: Set(cancelPlan.groups.map(\.id)), token: placementStop,
+                progress: { update in if update.text.hasPrefix("Placing TWO_1.NEF.xmp") { placementStop.cancel() } })
+} catch let error as ImportFailure { cancelledFailure = error }
+try checkFirstPlacementKept(cancelledFailure, cancelled: true, "cancellation")
+try retryCompletes("after cancellation")
+
 // MARK: Interruption and retry
 let interruptCard = root.appendingPathComponent("InterruptCard"), interruptLibrary = root.appendingPathComponent("InterruptLibrary")
 try fm.createDirectory(at: interruptLibrary, withIntermediateDirectories: true)

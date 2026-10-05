@@ -68,6 +68,20 @@ Evidence on Apple silicon, macOS 27.2, synthetic fixtures only:
 - Build, package, and package verification pass.
 - The GUI exercise passes all 137 steps and byte-verifies 88 imported files. Its changed-sidecar step left the card's original sidecars unchanged in the destination and produced `DSC_0006__…{JPG,NEF,XMP}` and `MVI_0026__…{MOV,THM}`, including the undated video, with no fallback date.
 
+## Placement fixes (2026-10-05)
+
+Two independently reproduced cases were fixed:
+
+- **Sidecars beside photos directly in the destination root.** These were refused as "outside the destination". The root itself is now a valid placement folder, while paths outside the root, look-alike sibling folders, and symlinked folders are still refused.
+- **Staging failure in a later placement of the same group.** It skipped the code that records results, so sidecars already published were missing from the failure outcome and the report.
+
+The new tests reproduce both on the previous engine. The root-level import was refused, and the staging failure reported 0 copies. They also cover:
+
+- root-level missing and changed sidecars, including byte preservation, rescan recognition, and zero-copy repeats;
+- a two-placement group whose second placement fails while staging and, separately, is cancelled after the first is published. Each case checks counts, outcomes, receipts, preserved bytes, the absence of staging files, and a retry that copies only the remaining sidecar.
+
+`./test.sh` passes 118 checks. Build and package verification also pass.
+
 ## Prototype and foundation (earlier)
 
 The initial prototype passed 32 synthetic safety checks and a full native GUI import/repeat scan on an Apple silicon Mac with macOS 27.2 and Homebrew ExifTool 13.55. The repository foundation passed 39 checks, including bounded preview reads, deliberate sample collisions, unsampled source changes, and large renamed duplicates. A mounted Nikon card was detected, but real photos were neither imported nor ejected.

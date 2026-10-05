@@ -27,10 +27,11 @@ Status: accepted on 2026-10-04 with the first-release implementation. Rules belo
 
 ## Sidecars of imported photos
 
-When every photo a sidecar belongs to is already imported, the sidecar goes beside an imported copy of that photo, never into the date folder. It therefore needs no capture date, even when the photo had none.
+When every photo a sidecar belongs to is already imported, the sidecar goes beside an imported copy of that photo, never into the date folder. That folder may be the destination root itself or any real folder inside it; folders outside the root or reached through a symlink are refused. It therefore needs no capture date, even when the photo had none.
 
 - **Missing beside the photo:** the sidecar is copied beside the photo under the associated name, which follows the imported photo's filename if that was renamed.
 - **Changed:** the associated name beside every copy holds different contents, for example because an editor updated the destination's XMP. The destination file is kept. The card's sidecar is imported together with a fresh, verified copy of the photo or photos it belongs to (stem-named sidecars bring every photo in the group; full-filename sidecars bring the photo they name). All of them share one suffix, so editors see a complete pair: `DSC_0001__<16 hex>.NEF`, `DSC_0001__<16 hex>.JPG`, `DSC_0001__<16 hex>.xmp`. This costs a second copy of the photo, so these groups are never selected by default, and the size shown includes the photo copy. The result sheet and report explain the copy.
+- **Interruptions:** one group can place files in several folders, for example sidecars beside a JPEG and a RAW kept in different folders. If a later placement fails or is cancelled, every file already published and verified, and every existing file already confirmed, is listed in the failure outcome and the report.
 - **Rescan and repeat imports:** a rescan finds the sidecar beside the suffixed copy and reports the group as imported. Repeating an identical import copies nothing.
 
 ## Collisions
