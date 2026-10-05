@@ -6,7 +6,7 @@ A lightweight native macOS app that copies **only new photo and video originals*
 
 ![Import window](docs/screenshots/import-window.png)
 
-**Development preview:** builds are ad hoc signed and not notarized. Real-camera, clean-machine, and older-macOS qualification remain in progress. The repository is private while licensing and release readiness are settled. See [the specification](docs/SPEC.md) and [roadmap](docs/ROADMAP.md).
+**Development preview:** builds are ad hoc signed and not notarized. Real-camera, clean-machine, and older-macOS qualification remain in progress. See [the specification](docs/SPEC.md) and [roadmap](docs/ROADMAP.md).
 
 ## Use it
 
@@ -70,6 +70,6 @@ Product behavior: [specification](docs/SPEC.md). Decisions: [ADR-0001](docs/deci
 
 ## Hosting and license
 
-A future product page can live under an owner-controlled Andermic domain and link to signed release downloads. No website, DNS, or hosting is configured yet.
+The product page is [andermic.com/projects/photo-importer](https://andermic.com/projects/photo-importer/). Releases are not notarized (there's no Apple Developer ID yet): build from source with `./build.sh`, or download a release and allow it in System Settings → Privacy & Security → "Open Anyway" on first launch.
 
-The app's source license is not yet selected; this private repository grants no open-source license. Bundled ExifTool and Perl keep their own licenses, shown in the app under **Third-Party Notices** ([ADR-0004](docs/decisions/0004-self-contained-metadata-helper.md)). The icon is the accepted Aperture A concept; builds generate macOS icon sizes from the original PNG.
+The app is released under the [MIT License](LICENSE). Bundled ExifTool and Perl keep their own licenses, shown in the app under **Third-Party Notices** ([ADR-0004](docs/decisions/0004-self-contained-metadata-helper.md)). The icon is the accepted Aperture A concept; builds generate macOS icon sizes from the original PNG.
