@@ -1,31 +1,44 @@
 # Product specification
 
-## Purpose
+Status: first-public-release scope accepted on 2026-10-04 after twelve discovery questions. This specification distinguishes desired behavior from the shipped development alpha. The interview changed documentation only; implementation has not started.
 
-Import new originals from a mounted camera card or selected folder into a configurable ordinary directory tree, safely and with minimal user input. Support a streamlined workflow into DxO without becoming a RAW editor or proprietary photo catalog.
+## Product and audience
 
-## Required behavior
+Andermic Photo Importer is a simple, no-frills, highly configurable utility for anyone on Mac who wants to import photo/video originals into ordinary folders. Use the existing native macOS foundation. Linux is a possible later platform, not a first-release requirement. Grow import configuration in layers using established photography workflows as references. RAW processing, lens/color correction, cloud synchronization, and a managed photo library remain outside the scope.
 
-1. Native GUI with source, event, destination, folder presets/custom template, scan preview, cancellation, and import action.
-2. Detect mounted local removable camera volumes containing DCIM. Probe independently in the background so unrelated volumes cannot block the UI. Integrated removable card readers are eligible.
-3. Read the standard original capture date through macOS ImageIO without decoding pixels. Use separately installed ExifTool for unsupported containers or missing standard dates, with user ExifTool configuration disabled. Prefer original capture dates, then embedded creation dates. Require an explicit fallback for missing dates.
-4. Organize each file using its own calendar date and the chosen event/template. Validate folder components and source/destination separation.
-5. Import only supported new media originals, matching duplicates by SHA-256 contents across the selected root. Preserve filename collisions by adding a digest suffix.
-6. Preserve original bytes and file timestamps. Stage, flush, read back, verify, exclusively publish, and verify final destinations. Never overwrite or delete originals.
-7. Serialize this utility's imports into the same root with an OS file lock. Keep completed copies on interruption; allow repeat scans to resume safely.
-8. Optional DxO folder-open request and optional eject only after successful final verification. Ejection must not target the destination volume or an ordinary source directory.
-9. Local JSON settings and per-import JSON reports. No login, telemetry, cloud connection, or persistent catalog.
+## First public release
 
-## Scan performance and verification
+1. **Destination and organization.** Default new installations to the user's Pictures directory and `{YYYY}/{MM}/{DD}`, for example `~/Pictures/2026/10/04/`. Let users change the root and folder preset/template, and remember their choices. Preserve existing configured destinations/templates on upgrade. Organize each file by its own camera-recorded capture day; multi-date imports require no event name. Keep event-based layouts optional.
+2. **Single-window interface.** Use an Apple Photos-inspired central thumbnail grid with individual selection, selection counts, date/file-type filters, and separate selected/all-new import actions. Select new files by default. Combine this with familiar side panels, visible common settings, saved import presets, and expandable advanced sections. Do not use a wizard or expose unimplemented backlog settings as working features.
+3. **Related files.** Select/import RAW+JPEG pairs and matching sidecars as one photo group by default, preserving every file byte-for-byte. Match within a source directory so reused names across directories are not conflated. Verify physical files individually and distinguish photo-group counts from file counts. Initial sidecar coverage, ambiguous pairing, inherited dates, and group-level filename collisions require detailed implementation rules.
+4. **Sources and card insertion.** Support mounted camera cards and user-selected folders. While the app runs, default to showing the import window and automatically scanning a newly detected card for a preview. Users can choose quiet card availability indication and manual open/scan instead. Neither mode automatically copies files or disrupts an ongoing operation. Login/startup behavior is not decided by this scope.
+5. **New-file detection.** Start with simple source-versus-destination comparison and existing lightweight import reports. Preserve meaningful content-confirmed duplicate detection across the selected destination root, including renamed files. Distinguish duplicate contents from filename collisions. Advanced persistent history, selectable detection methods, and complex missing/offline/edited-copy recovery come later.
+6. **Safe copies and interruptions.** Preserve source originals and destination bytes; keep original filenames by default. Stage, flush, read back, verify, exclusively publish, and verify final destinations. Never overwrite an existing file. Keep completed verified copies after cancellation/failure, clean up the current staging file, report progress/errors, and let the user rescan to resume. Related-file collision handling must retain usable associations without overwriting files.
+7. **Dates and previews.** Read the standard original-capture date through a bounded ImageIO header read without decoding image pixels, with complete metadata-helper fallback for unsupported containers or other date fields. Keep the camera's calendar day. Missing dates require an explicit fallback rather than silent invention. Thumbnail availability must not determine whether an original can be copied safely.
+8. **Completion.** Keep optional editor handoff and safe card ejection after successful verification; the app must work without DxO installed. Only genuinely eligible source volumes may be ejected. Preserve the card on failure. General Finder/chosen-app completion actions from the initial review remain a design recommendation, not a settled integration contract.
+9. **Self-contained installation.** Bundle the required metadata helper/runtime, expose open-source notices and applicable component licensing, and require no separate ExifTool/Homebrew installation for normal use. Public packages require Developer ID signing, notarization, clean-machine testing, and qualified supported macOS versions/architectures.
+10. **Local independence.** No login, telemetry, app cloud service, or proprietary photo library. Store settings and reports locally; photos remain usable independently of the app. No source deletion in the first public release.
 
-Preview groups destination files by size and bounded SHA-256 samples of their beginning, middle, and end (at most 96 KiB per file). Sample groups are built once per relevant size during the scan. Samples only eliminate different files; potential matches require complete SHA-256 confirmation. Renamed duplicates remain detectable. New originals are fully hashed during copying rather than during preview, with file identity, size, modification and change times checked against the preview and across copying. Import-time duplicate checks and staged/final copy verification remain mandatory. No persistent hash cache is introduced.
+## Accepted advanced features — later updates
 
-Scanning still enumerates the destination tree. Repeat scans containing many true duplicates still read full matching files, and unsupported metadata still requires ExifTool. These limits require measurement on real cards and libraries before making performance claims.
+These are approved product directions, not prerequisites for the first public release. Their implementation order has not been selected.
 
-## Scope boundaries
+- **Local history and detection options.** Remember imports and offer more than one detection strategy, including content hashes. History does not prove that a verified destination currently exists. Define missing/offline/edited-copy and explicit reimport behavior before adding recovery automation. Storage format and cache invalidation remain undecided.
+- **Filename templates.** Preserve filenames by default; optionally rename destination copies using dates, camera information, sequence numbers, and custom text. Keep group members consistently named, preview the result, and never overwrite. Token coverage, sequence persistence, and group collision rules remain to be specified.
+- **Second copy.** Offer an optional second verified copy to another drive/folder in advanced settings. When enabled, every included file at both destinations must verify before offering source deletion. Preserve successful copies and report each destination's result if the other fails. A second import copy is not automatically a complete backup strategy.
+- **Delete after import.** Offer optional source cleanup only after the complete intended import verifies, followed by a final batch confirmation showing the source card and file count. If a second copy is enabled, both copies must verify. Deletion scope, eligibility of verified duplicates, option persistence, identity rechecks, cancellation/failure behavior, and cleanup/ejection ordering require a dedicated contract and tests. No current files may be deleted under these design notes.
 
-No RAW development, color profiles, lens correction engine, cloud synchronization, photo catalog, source-sidecar migration, automatic rejection/deletion, or culling state in this release. These require separate product decisions. Same-byte RAW/JPEG pairs are unusual; different-byte pairs are both retained.
+## Current alpha behavior and limitations
 
-## Known qualification gaps
+The alpha uses `/Volumes/Photography/Photo Container` and `{YYYY}/{MM}-{DD} - {event}` as defaults, a table preview, and a separately installed ExifTool. It imports supported media originals but not source sidecars, has no selectable photo groups or per-file import selection, uses original filenames with collision suffixes, and copies to one destination. It detects mounted local removable DCIM volumes, keeps settings/reports in the prototype's `Photo Import` Application Support directory, offers DxO handoff and verified ejection, and never deletes sources. These facts must remain accurate in setup/release descriptions until implementation changes.
 
-Whole-file hashes change with embedded metadata edits. There are no genuine-camera compatibility fixtures yet. Real destination-volume copies, ejection, DxO folder selection, early supported macOS versions, and worst-case large-library performance need further qualification. Source sidecars are counted as unsupported; embedded JPEG/DNG metadata is part of the preserved original bytes.
+The scanner groups destination files by size and SHA-256 samples of their beginning, middle, and end (up to 96 KiB per file). Sample equality is only a candidate test: possible duplicates require full SHA-256 confirmation. New files are fully hashed during copying instead of preview. Source identity, size, modification/change times, staged readback, and final destination verification protect the import. Directory enumeration and duplicate-heavy full reads remain performance costs; no persistent hash cache exists yet.
+
+Whole-file hashes change with embedded metadata edits. Genuine-camera compatibility, real destination-volume copies, physical ejection/editor handoff, earlier supported macOS versions, and worst-case large-library performance remain to be qualified. Read [validation](VALIDATION.md) for actual test evidence; do not equate synthetic containers with real RAW compatibility.
+
+## Decision references
+
+- [Discovery answers and remaining recommendations](DESIGN-DISCOVERY.md).
+- [Core-first release decision](decisions/0003-core-first-public-release.md).
+- [Roadmap and public-release qualification](ROADMAP.md).
+- [Import history and metadata packaging research](research/import-history-and-metadata-packaging.md).

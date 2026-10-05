@@ -6,6 +6,8 @@ A lightweight native macOS GUI that copies **only new photo/video originals** fr
 
 **Development preview:** builds are locally signed, not Apple notarized. Real-camera and destination-volume qualification remains in progress. The repository is private while scope, licensing, and release readiness are settled.
 
+The [first public release plan](docs/SPEC.md) prioritizes a polished core importer; [advanced features](docs/ROADMAP.md) follow in later updates. The setup and behavior below describe the current alpha. The completed [design interview](docs/DESIGN-DISCOVERY.md) changed documentation only.
+
 ## Use it
 
 1. Install [ExifTool](https://exiftool.org/install.html#OSX), or use `brew install exiftool` if Homebrew is already installed.
