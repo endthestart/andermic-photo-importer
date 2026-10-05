@@ -50,6 +50,8 @@ A new photo in a partly imported group cannot share a suffix with already-import
 
 ## Sources and cards
 
+The original show-and-scan default and launch rule below were superseded on 2026-10-05 by [ADR-0007](0007-menu-bar-lifecycle.md): new installations scan in the background, existing card preferences are preserved, and startup respects the independent window preference.
+
 - Sources are detected local removable/ejectable volumes containing `DCIM`, or any folder chosen, dropped on the grid, or opened with the app.
 - **Show and scan** (default): while the app is idle, a newly mounted card is selected, the window is shown, and the card is scanned. A card already mounted at launch is treated the same way. Later card-list changes, such as ejecting the current card, never switch to another card.
 - **Only show availability:** the card appears in the sidebar with a dot, and the menu-bar icon changes. The same quiet indication is used whenever a scan or import is running. A card is never scanned automatically during other work, and copying always requires an import button.

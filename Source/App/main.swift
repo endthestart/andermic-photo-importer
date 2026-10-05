@@ -17,6 +17,6 @@ if CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--verify-metad
 
 let application = NSApplication.shared
 let delegate = AppDelegate()
-application.setActivationPolicy(.regular)
+application.setActivationPolicy(.accessory)
 application.delegate = delegate
 application.run()

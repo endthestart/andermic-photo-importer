@@ -34,10 +34,18 @@ cp "$cards/DSC_0001.JPG" "$root/Library/Earlier import/renamed-copy.jpg"        
 printf 'a different photo from another camera' > "$root/Library/2026/09/12/DSC_0003.NEF"   # name collision
 hdiutil create -quiet -srcfolder "$root/DiskCard" -volname SYNTHCARD -fs ExFAT -format UDRW "$root/card.dmg"
 cat > "$root/Settings/settings.json" <<JSON
-{"schemaVersion":2,"destination":"$root/Library","folderTemplate":"{YYYY}/{MM}/{DD}","cardInsertion":"indicate","presets":[],"photoLab":"","openInDxO":false,"eject":false}
+{"schemaVersion":2,"destination":"$root/Library","folderTemplate":"{YYYY}/{MM}/{DD}","cardInsertion":"indicate","launchInBackground":true,"presets":[],"photoLab":"","openInDxO":false,"eject":false}
 JSON
 
 cat > "$root/run/script.txt" <<STEPS
+wait 1
+expect visible false
+expect policy accessory
+expect tray true
+tray Show Andermic Photo Importer
+wait 1
+expect visible true
+expect policy regular
 # 1. Folder source: preview, select a subset, import across dates.
 open $root/Card
 waitIdle
@@ -110,18 +118,8 @@ expect status DSC_0006=imported
 expect status MVI_0026=imported
 state after-sidecars
 # 2c. Standard menu commands route through the responder chain.
-type event Lisbon Trip
 focus event
-menu Select All
-expect selectedText Lisbon Trip
-menu Copy
-expect pasteboard Lisbon Trip
-menu Cut
-expect event
-menu Paste
-expect event Lisbon Trip
-menu Select All
-menu Cut
+editing Lisbon Trip
 focus grid
 menu Minimize
 wait 1.5
@@ -132,9 +130,33 @@ expect miniaturized false
 menu Close Window
 wait 1
 expect visible false
-menu Andermic Photo Importer
+expect policy accessory
+expect tray true
+tray Show Andermic Photo Importer
 wait 1
 expect visible true
+expect policy regular
+# A background card scan stays hidden while new photos are compared.
+popup card 2
+close
+wait 1
+card $root/Card
+expect visible false
+expect policy accessory
+waitIdle
+expect groups 26
+expect visible false
+expect policy accessory
+expect tray true
+tray Settings…
+wait 1
+expect visible true
+expect policy regular
+check Start in the menu bar
+expect backgroundLaunch false
+check Start in the menu bar
+expect backgroundLaunch true
+popup card 1
 # 3. Cancellation and retry on a large card.
 open $root/BigCard
 waitIdle
@@ -183,6 +205,19 @@ snap 12-advanced-options
 notices
 wait 1
 snapKey 13-third-party-notices
+close
+wait 1
+expect visible false
+expect policy regular
+closeNotices
+wait 1
+expect policy accessory
+expect tray true
+tray Settings…
+wait 1
+popup card 1
+check Start in the menu bar
+expect backgroundLaunch false
 quit
 STEPS
 
@@ -217,6 +252,34 @@ grep -E '^(STATE|ALERT|FAIL)' "$log" || true
 grep -q '^DONE' "$log" || { echo 'GUI exercise did not finish.' >&2; exit 1; }
 ! grep -q '^FAIL' "$log" || { echo 'GUI exercise had failed steps.' >&2; exit 1; }
 [[ ! -d /Volumes/SYNTHCARD ]] || { echo 'Synthetic card was not ejected.' >&2; exit 1; }
+
+# A second process uses the saved foreground-launch preference, with real-card scanning disabled.
+cat > "$root/run/foreground.txt" <<'STEPS'
+wait 1
+expect visible true
+expect policy regular
+expect tray true
+expect backgroundLaunch false
+close
+wait 1
+expect visible false
+expect policy accessory
+tray Show Andermic Photo Importer
+wait 1
+expect visible true
+expect policy regular
+quit
+STEPS
+open -n "$app" --args -AndermicSettingsDirectory "$root/Settings" -AndermicUIScript "$root/run/foreground.txt"
+foregroundLog="$root/run/foreground.txt.log"
+deadline=$((SECONDS + 30))
+while (( SECONDS < deadline )); do
+    [[ -f "$foregroundLog" ]] && grep -q '^DONE' "$foregroundLog" && break
+    sleep 0.3
+done
+grep -q '^DONE' "$foregroundLog" || { echo 'Foreground-launch exercise did not finish.' >&2; exit 1; }
+! grep -q '^FAIL' "$foregroundLog" || { cat "$foregroundLog"; exit 1; }
+echo 'Menu-bar launch, hidden scan, window/Dock lifecycle, settings, and foreground relaunch passed.'
 
 # Every imported file must byte-match a source original; no staging files may remain.
 python3 - "$root" <<'PY'

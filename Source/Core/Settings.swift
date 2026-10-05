@@ -5,6 +5,8 @@ enum CardInsertionBehavior: String, Codable, CaseIterable {
     case showAndScan
     /// Only indicate that a card is available; the user opens and scans it.
     case indicate
+    /// Scan for a preview without opening a window or activating the app.
+    case scanInBackground
 }
 
 struct ImportPreset: Codable, Equatable {
@@ -29,7 +31,8 @@ struct Settings: Codable, Equatable {
     var photoLab = ""
     var openInDxO = false
     var eject = false
-    var cardInsertion = CardInsertionBehavior.showAndScan
+    var cardInsertion = CardInsertionBehavior.scanInBackground
+    var launchInBackground = true
     var presets: [ImportPreset] = []
 
     init() {}
@@ -46,6 +49,7 @@ struct Settings: Codable, Equatable {
         openInDxO = try values.decodeIfPresent(Bool.self, forKey: .openInDxO) ?? false
         eject = try values.decodeIfPresent(Bool.self, forKey: .eject) ?? false
         cardInsertion = (try? values.decodeIfPresent(CardInsertionBehavior.self, forKey: .cardInsertion)) ?? .showAndScan
+        launchInBackground = try values.decodeIfPresent(Bool.self, forKey: .launchInBackground) ?? defaults.launchInBackground
         presets = (try? values.decodeIfPresent([ImportPreset].self, forKey: .presets)) ?? []
         if destination.isEmpty { destination = defaults.destination }
         if folderTemplate.isEmpty { folderTemplate = defaults.folderTemplate }

@@ -16,7 +16,8 @@ Status: core-first public release accepted on 2026-10-04 and implemented in deve
 - Apple Photos-style thumbnail selection with selected/all-new actions, selection counts, and date/file-type filters.
 - Familiar configuration side panels, visible common settings, saved import presets, and expandable advanced sections; no wizard.
 - RAW+JPEG/sidecar selection groups, preserving and verifying each physical file with safe grouping/collision rules.
-- Configurable card-insertion behavior: show and scan automatically by default, or quietly indicate availability while the app is running. Copying remains an explicit user action.
+- Menu-bar launch by default, optional foreground launch, and a shortcut to user-managed macOS Login Items. Closing the last window hides the Dock icon while keeping work running.
+- Configurable card-insertion behavior: scan in the background by default for new installations, show and scan, or indicate availability only. Existing preferences are preserved. Copying remains an explicit user action.
 - Simple destination comparison and current lightweight reporting; keep advanced history/recovery out of this milestone.
 - Self-contained metadata helper/runtime packaging (pinned Perl 5.44.0 and ExifTool 13.59) and visible open-source notices, with no separate installation required.
 - Preserve source files: no delete-after-import option in this release.
@@ -42,6 +43,7 @@ Ordering is not yet selected; none blocks the first public release.
 
 ## Other future possibilities
 
+- Richer menu-bar status, such as counts of new photos ready: explicitly deferred.
 - Linux: possible later platform; retain the native macOS foundation for the first release.
 - Culling: outside the agreed first-release and advanced-import scope. Reconsider only after a separate product decision establishes a concrete need and portable state/interoperability requirements.
 - Domain hosting: choose an owner-controlled Andermic domain/subdomain and hosting service for a small product page with screenshots, setup, release notes, and signed downloads. No DNS changes or website publication are authorized by this discovery work.

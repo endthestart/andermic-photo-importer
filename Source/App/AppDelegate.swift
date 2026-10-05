@@ -1,4 +1,5 @@
 import AppKit
+import ServiceManagement
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var controller: MainWindowController!
@@ -16,9 +17,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         monitor.excludedPath = { [weak self] in self?.controller.settings.destination ?? "" }
         monitor.onChange = { [weak self] cards, inserted in self?.controller.cardsChanged(cards, inserted: inserted) }
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(unmounted(_:)), name: NSWorkspace.didUnmountNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(windowVisibilityChanged(_:)), name: NSWindow.willCloseNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(windowVisibilityChanged(_:)), name: NSWindow.didBecomeKeyNotification, object: nil)
+        if !controller.settings.launchInBackground { showWindow() }
         monitor.start()
-        controller.showWindow(nil)
-        NSApp.activate(ignoringOtherApps: true)
         #if UI_AUTOMATION
         automation = UIAutomation(controller: controller)
         #endif
@@ -34,7 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// Folders opened with the app (Finder, Dock, or `open -a`) become the import source.
     func application(_ application: NSApplication, open urls: [URL]) {
         guard let url = urls.first(where: { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }) else { return }
-        controller.showWindow(nil)
+        showWindow()
         controller.setSource(url, scan: true)
     }
 
@@ -49,9 +51,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         return .terminateCancel
     }
 
-    @objc func showWindow() { controller.showWindow(nil); NSApp.activate(ignoringOtherApps: true) }
+    /// The Dock and application menus belong to visible windows, not to background work.
+    func presentWindow() { NSApp.setActivationPolicy(.regular) }
+
+    @objc func windowVisibilityChanged(_ notification: Notification) {
+        // willClose arrives before the window disappears. Recheck after AppKit finishes closing it.
+        DispatchQueue.main.async { [weak self] in self?.updateActivationPolicy() }
+    }
+
+    func updateActivationPolicy() {
+        let visible = NSApp.windows.contains { window in
+            window.level == .normal && window.styleMask.contains(.titled) && (window.isVisible || window.isMiniaturized)
+        }
+        let policy: NSApplication.ActivationPolicy = visible ? .regular : .accessory
+        if NSApp.activationPolicy() != policy { NSApp.setActivationPolicy(policy) }
+    }
+
+    @objc func showWindow() { controller.showWindow(nil) }
+    @objc func showLoginItems() { SMAppService.openSystemSettingsLoginItems() }
     @objc func showNotices() {
         if notices == nil { notices = NoticesWindow(helper: controller.helper) }
+        presentWindow()
         notices?.showWindow(nil); NSApp.activate(ignoringOtherApps: true)
     }
     @objc func showSettings() { showWindow(); controller.showAdvanced() }
@@ -59,6 +79,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let versions = controller.helper?.readManifest()?.components.map { "\($0.name) \($0.version)" }.joined(separator: " and ") ?? "no metadata helper"
         let credits = NSAttributedString(string: "Copies only new photos into ordinary folders and verifies every file. Includes \(versions); see Third-Party Notices.",
                                          attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor])
+        presentWindow()
         NSApp.orderFrontStandardAboutPanel(options: [.credits: credits])
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -163,6 +184,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         let tray = NSMenu()
         tray.addItem(item("Show \(name)", #selector(showWindow)))
+        tray.addItem(item("Settings…", #selector(showSettings)))
         tray.addItem(.separator())
         tray.addItem(item("Quit", #selector(NSApplication.terminate(_:)), target: .object(NSApp)))
         statusItem.menu = tray

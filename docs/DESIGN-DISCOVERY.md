@@ -1,3 +1,5 @@
+> Update 2026-10-05: later owner feedback settled menu-bar startup and background card scanning in [ADR-0007](decisions/0007-menu-bar-lifecycle.md). The answers below record the earlier discovery decisions.
+
 # Product design discovery
 
 Status: complete. All twelve questions were answered on 2026-10-04. Accepted decisions are recorded below; remaining review recommendations and engineering details are identified separately. This interview changed documentation only.

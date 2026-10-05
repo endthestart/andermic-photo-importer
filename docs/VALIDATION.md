@@ -95,3 +95,17 @@ The owner approved a MIT-licensed source-only preview and deferred Apple Develop
 An inspection of 149 Git objects, including historical text blobs, found no candidate private-key, GitHub-token, API-key, or absolute-home-path matches. The main screenshot was visually checked and contains synthetic images. This bounded inspection is not a guarantee that every possible secret pattern is detected. No personal photo library, real-card import, or ejection was used for this preparation. Existing user settings were read for configuration presence and left unchanged.
 
 The first local icon-generation attempt failed inside the execution sandbox. The normal build succeeded when run with macOS system access; no app code was changed for that environment restriction. Source previews do not claim to close the live qualification items above.
+
+## Menu-bar lifecycle (2026-10-05)
+
+On Apple silicon, macOS 27.2, using isolated settings and synthetic photos:
+
+- `./test.sh`: 119 checks pass, including background-launch defaults, migration, and saved startup/card preferences.
+- Build, package, and extracted-package verification pass. The archive declares `LSUIElement`; app and all 49 helper binaries verify.
+- The GUI exercise passes background launch with no visible window, tray reopening, regular/accessory activation changes after close/reopen, minimization, a 26-photo scan while hidden, independent startup/card settings, and a separate notices window keeping normal app presence until it closes.
+- A second process reads the saved foreground-launch preference, starts with its window visible, closes to the menu bar, and reopens successfully.
+- Existing import, cancellation/retry, sidecar, and synthetic-card ejection exercises still pass. All 88 destination files match source originals by SHA-256; no staging files remain.
+
+Earlier GUI runs were disturbed by desktop input, including changes to fixture text and a folder template. The test-only driver now performs text setup and editing-menu assertions together and ignores physical keystrokes only within the automated test app. The shipped app has neither this driver nor input filtering. The final full run passed. The clipboard is restored after the exercise.
+
+No real photos or cards were imported, modified, or ejected for these checks. Login Items enrollment and a reboot/login test have not been performed; the app only opens macOS settings for user-managed enrollment. New-photo counts and richer status-icon progress remain deferred (ADR-0007).
