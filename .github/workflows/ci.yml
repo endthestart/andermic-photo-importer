@@ -25,10 +25,7 @@ jobs:
           - runner: macos-15-intel
             architecture: x86_64
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 20
-    env:
-      HOMEBREW_NO_AUTO_UPDATE: '1'
-      HOMEBREW_NO_ENV_HINTS: '1'
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -37,11 +34,19 @@ jobs:
         env:
           EXPECTED_ARCH: ${{ matrix.architecture }}
         run: test "$(uname -m)" = "$EXPECTED_ARCH"
-      - name: Install metadata dependency
+      - name: Restore pinned metadata helper build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            build/downloads
+            build/metadata-helper/${{ matrix.architecture }}
+          key: metadata-helper-${{ matrix.runner }}-${{ matrix.architecture }}-${{ hashFiles('scripts/metadata-helper.lock', 'scripts/build-metadata-helper.sh') }}
+      - name: Build pinned Perl and ExifTool helper
         run: |
-          brew install exiftool
-          exiftool -ver
           xcrun swift --version
+          ./scripts/build-metadata-helper.sh
+          # The app and tests never use an installed ExifTool; report whether one exists only for the record.
+          command -v exiftool || echo 'No external ExifTool on PATH.'
       - name: Test importer safety
         run: ./test.sh
       - name: Build app and icon

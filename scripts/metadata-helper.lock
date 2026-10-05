@@ -1,0 +1,9 @@
+# Pinned upstream sources for the bundled metadata helper.
+# Update a version only together with its published SHA-256:
+#   Perl:     https://www.cpan.org/src/5.0/perl-<version>.tar.gz.sha256.txt
+#   ExifTool: https://exiftool.org/checksums.txt
+PERL_VERSION=5.44.0
+PERL_SHA256=3b855066b92491cb40e86affb1ca57d1a388aa43e51b91c7806a32c2f65f96c3
+EXIFTOOL_VERSION=13.59
+EXIFTOOL_SHA256=668ea3acececb7235fbd0f4900e72d5f12c9b07e5c778fd36cb1e9b5828fd65a
+MACOS_DEPLOYMENT_TARGET=13.0

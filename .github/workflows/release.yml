@@ -23,10 +23,7 @@ jobs:
           - runner: macos-15-intel
             architecture: x86_64
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 20
-    env:
-      HOMEBREW_NO_AUTO_UPDATE: '1'
-      HOMEBREW_NO_ENV_HINTS: '1'
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -42,8 +39,8 @@ jobs:
           test "${version%%-*}" = "$(cat VERSION)"
           echo "APP_VERSION=$version" >> "$GITHUB_ENV"
           echo "BUILD_NUMBER=$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
-      - name: Install metadata dependency
-        run: brew install exiftool
+      - name: Build pinned Perl and ExifTool helper from verified sources
+        run: ./scripts/build-metadata-helper.sh
       - name: Test importer safety
         run: ./test.sh
       - name: Build development-signed app
@@ -80,14 +77,14 @@ jobs:
       - name: Write release notes
         run: |
           cat > release-notes.md <<'NOTES'
-          Development preview of Andermic Photo Importer. The importer copies new originals into configurable date/event folders, checks duplicates by content, and verifies completed copies.
+          Development preview of Andermic Photo Importer. Select new photos in a thumbnail grid and copy them, with related RAW/JPEG/sidecar files, into configurable date folders (Pictures/YYYY/MM/DD by default). Duplicates are confirmed by content and every copy is verified.
 
           These builds are locally/ad hoc signed, not Developer ID signed or Apple notarized. This draft is for review and testing; it is not a public-ready distribution release.
 
           - `arm64`: Apple silicon Macs.
           - `x86_64`: Intel Macs.
-          - ExifTool is required separately; install its official macOS package or use `brew install exiftool`.
-          - Real camera metadata, Photography-volume copies, physical-card ejection, and DxO handoff still need live qualification.
+          - Self-contained: ExifTool and its Perl runtime are bundled (see Third-Party Notices in the app). No Homebrew or separate installation is needed.
+          - Real camera metadata, real-card performance, physical-card ejection, DxO handoff, clean-machine installs, and earlier macOS versions still need live qualification.
           - Embedded metadata edits can affect the current whole-file duplicate matching.
 
           Source: the tagged commit. SHA-256 checksum files accompany both builds. See docs/RELEASE.md for the signing and public-release checklist.
