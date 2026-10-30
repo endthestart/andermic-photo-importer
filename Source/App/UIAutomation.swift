@@ -320,6 +320,7 @@ final class UIAutomation {
             case "ejectEnabled": actual = String(controller.ejectCheck.isEnabled)
             case "backgroundLaunch": actual = String(controller.settings.launchInBackground)
             case "visible": actual = String(controller.window!.isVisible)
+            case "cachedDates": actual = String(controller.plan?.scanReads.cachedCaptureDates ?? 0)
             case "cachedGroups": actual = String(controller.plan?.cachedGroups ?? 0)
             case "cacheSavings": actual = String((controller.plan?.cachedGroups ?? 0) > 0 && (controller.plan?.scanReads.hashedBytes ?? 0) < (controller.plan?.files.reduce(UInt64(0)) { $0 + $1.size } ?? 0))
             case "fullRead": actual = String((controller.plan?.scanReads.hashedBytes ?? 0) > 0)

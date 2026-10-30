@@ -23,6 +23,8 @@ final class DuplicateVerificationCache {
     private struct Entry: Codable {
         let key: String, identity: Identity, sample: String, hash: String
         let verifiedAt: TimeInterval
+        var captureDay: CaptureDay? = nil
+        var captureOrigin: String? = nil
     }
     private struct Document: Codable { let version: Int; let entries: [Entry] }
     private let directory: URL
@@ -71,13 +73,46 @@ final class DuplicateVerificationCache {
         // Deliberately do not update verifiedAt on a hit.
         return entry.hash
     }
+    private func validCaptureMetadata(_ entry: Entry) -> Bool {
+        guard let day = entry.captureDay, CaptureDay.parse(day.text) == day,
+              let origin = entry.captureOrigin, !origin.isEmpty, origin.utf8.count <= 256 else { return false }
+        return true
+    }
+    /// This cheap check only decides whether sampling for a date-cache lookup is worthwhile.
+    /// It never authorizes using a cached date without a fresh sample below.
+    func hasCaptureMetadata(for url: URL, namespace: String, info: stat) -> Bool {
+        guard let entry = entries[key(url, namespace)], fresh(entry),
+              entry.identity == Identity(info), validCaptureMetadata(entry) else { return false }
+        return true
+    }
+    func captureMetadata(for url: URL, namespace: String, info: stat, sample: String) -> (CaptureDay, String, String)? {
+        guard let hash = hash(for: url, namespace: namespace, info: info, sample: sample),
+              let entry = entries[key(url, namespace)], validCaptureMetadata(entry),
+              let day = entry.captureDay, let origin = entry.captureOrigin else { return nil }
+        return (day, origin, hash)
+    }
+    /// Attach freshly read, native metadata only to an existing complete hash.
+    /// Enrichment does not renew the full-hash TTL. Never store a fallback/group date.
+    func recordCaptureMetadata(_ url: URL, namespace: String, info: stat, sample: String,
+                               day: CaptureDay?, origin: String?) {
+        let id = key(url, namespace)
+        guard var entry = entries[id], fresh(entry), entry.identity == Identity(info), entry.sample == sample else { return }
+        entry.captureDay = day; entry.captureOrigin = origin
+        if !validCaptureMetadata(entry) { entry.captureDay = nil; entry.captureOrigin = nil }
+        entries[id] = entry
+    }
     /// Call only after hashing complete contents and checking identity stability.
     func record(_ url: URL, namespace: String, info: stat, sample: String, hash: String) {
         guard info.st_mode & S_IFMT == S_IFREG, info.st_size >= 0,
               Self.validHash(sample), Self.validHash(hash) else { return }
         let id = key(url, namespace)
-        entries[id] = Entry(key: id, identity: Identity(info), sample: sample, hash: hash,
-                            verifiedAt: clock().timeIntervalSince1970)
+        let previous = entries[id]
+        var entry = Entry(key: id, identity: Identity(info), sample: sample, hash: hash,
+                          verifiedAt: clock().timeIntervalSince1970)
+        if let previous, previous.identity == entry.identity, previous.sample == sample, previous.hash == hash {
+            entry.captureDay = previous.captureDay; entry.captureOrigin = previous.captureOrigin
+        }
+        entries[id] = entry
         if entries.count > entryLimit { prune() }
     }
     private func newest() -> [Entry] {

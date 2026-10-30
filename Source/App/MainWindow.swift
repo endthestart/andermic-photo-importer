@@ -762,6 +762,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         status(String(format: "Scanned in %.1f s · %@ read to check %@ of photos.", elapsed,
                       ByteCountFormatter.string(fromByteCount: Int64(reads.total), countStyle: .file),
                       ByteCountFormatter.string(fromByteCount: Int64(value.files.reduce(0) { $0 + $1.size }), countStyle: .file))
+               + (value.scanReads.cachedCaptureDates > 0 ? " \(value.scanReads.cachedCaptureDates) cached capture dates." : "")
                + (value.cachedGroups > 0 ? " \(value.cachedGroups) cached matches; full contents are rechecked during import. File > Full Verification bypasses the cache." : ""))
         refresh()
         gridScroll.contentView.scroll(to: .zero)
@@ -1087,11 +1088,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         refresh(); sidebar.reloadData(); selectSidebarRow(); onStateChange?()
         let snapshot = settings
         let retainedSnapshot = cameraSnapshot
+        let importMetadataHelper = helper
         let cacheDirectory = verificationCacheDirectory
         DispatchQueue.global(qos: .userInitiated).async { [weak self, retainedSnapshot] in
             defer { withExtendedLifetime(retainedSnapshot) {} }
             do {
-                let result = try Importer.run(plan, selection: groups, cancellation: token, verificationCache: DuplicateVerificationCache(directory: cacheDirectory), progress: { update in
+                let result = try Importer.run(plan, selection: groups, cancellation: token, verificationCache: DuplicateVerificationCache(directory: cacheDirectory), metadataHelper: importMetadataHelper, progress: { update in
                     DispatchQueue.main.async {
                         self?.status(update.text)
                         if let fraction = update.fraction { self?.progressBar.doubleValue = fraction }

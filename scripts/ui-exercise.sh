@@ -182,16 +182,19 @@ state after-sidecars
 rescan
 waitIdle
 expect cachedGroups 26
+expect cachedDates 24
 expect cacheSavings true
 wait 1
 snap 07-cached-matches
 menu Full Verification
 waitIdle
 expect cachedGroups 0
+expect cachedDates 0
 expect fullRead true
 rescan
 waitIdle
 expect cachedGroups 26
+expect cachedDates 24
 expect cacheSavings true
 # Selecting already-imported groups re-verifies them without making more copies.
 click Select All

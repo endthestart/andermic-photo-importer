@@ -65,7 +65,8 @@ struct PlannedFile {
     var digest: String?
     /// A content-confirmed copy in the destination, or an identical earlier file in this source.
     var existing: URL?
-    let ownDate: CaptureDay?, ownDateOrigin: String?
+    let ownDate: CaptureDay?
+    var ownDateOrigin: String?
     var date: CaptureDay? = nil
     var folder: String? = nil
     var dateOrigin = "missing"
@@ -75,6 +76,7 @@ struct PlannedFile {
     var companion = false
     /// Preview hint only. Import still rechecks both complete files.
     var cachedVerification = false
+    var cachedCaptureMetadata = false
 }
 
 enum GroupStatus: String {
@@ -98,6 +100,7 @@ final class ReadMetrics {
     var headerBytes: UInt64 = 0
     var sampledBytes: UInt64 = 0
     var hashedBytes: UInt64 = 0
+    var cachedCaptureDates = 0
     var total: UInt64 { headerBytes + sampledBytes + hashedBytes }
 }
 
@@ -149,14 +152,14 @@ struct ImportPlan {
             // video) so related files stay together. Sidecars and undated members inherit it.
             let dated = group.members.map { value.files[$0] }.filter { $0.role != .sidecar && $0.ownDate != nil }.min { $0.role < $1.role }
             let date = dated?.ownDate ?? fallback
-            let origin = dated.map { $0.ownDateOrigin ?? "metadata" } ?? (fallback == nil ? "missing" : "user-selected date")
+            let origin = dated.map { ($0.ownDateOrigin ?? "metadata") + ($0.cachedCaptureMetadata ? " (cached metadata)" : "") } ?? (fallback == nil ? "missing" : "user-selected date")
             value.groups[index].date = date
             value.groups[index].dateOrigin = origin
             value.groups[index].folder = try date.map { try Importer.folder(template: template, event: event, date: $0) }
             for member in group.members {
                 var file = value.files[member]
                 file.date = date; file.folder = value.groups[index].folder
-                if let own = file.ownDate, own == date, let ownOrigin = file.ownDateOrigin { file.dateOrigin = ownOrigin }
+                if let own = file.ownDate, own == date, let ownOrigin = file.ownDateOrigin { file.dateOrigin = ownOrigin + (file.cachedCaptureMetadata ? " (cached metadata)" : "") }
                 else if let source = dated, source.source != file.source {
                     file.dateOrigin = "from \(source.source.lastPathComponent) (\(origin))" + (file.ownDate.map { "; own date \($0.text)" } ?? "")
                 } else { file.dateOrigin = origin }
@@ -514,9 +517,32 @@ enum Importer {
         let members = sourceGroups.flatMap(\.members)
         let metadataVersions = try Dictionary(uniqueKeysWithValues: members.map { ($0, try info($0)) })
         let metrics = ReadMetrics()
-        let metadata = try captureDates(primaries, helper: helper, cancellation: cancellation, metrics: metrics) { index in
-            if index % 25 == 0 { progress(ImportProgress("Reading capture dates (\(index + 1) of \(primaries.count))…", fraction: 0.4 * Double(index) / Double(primaries.count))) }
+        let cacheNamespace = DuplicateVerificationCache.namespace(root: root)
+        var metadata: [String: (CaptureDay, String)] = [:]
+        var cachedSources: [URL: (sample: String, version: stat, hash: String)] = [:]
+        let inspectMetadataCache = reuseCachedHashes && (verificationCache?.count ?? 0) > 0
+        if inspectMetadataCache, let cache = verificationCache, let namespace = cacheNamespace {
+            for (index, url) in primaries.enumerated() {
+              try autoreleasepool {
+                try cancellation.check()
+                if index % 25 == 0 {
+                    progress(ImportProgress("Checking cached capture dates (\(index + 1) of \(primaries.count))…", fraction: 0.2 * Double(index) / Double(primaries.count)))
+                }
+                guard let initial = metadataVersions[url], cache.hasCaptureMetadata(for: url, namespace: namespace, info: initial) else { return }
+                let (sample, version) = try fingerprint(url, cancellation: cancellation, metrics: metrics)
+                if let fact = cache.captureMetadata(for: url, namespace: namespace, info: version, sample: sample) {
+                    metadata[url.path] = (fact.0, fact.1)
+                    cachedSources[url] = (sample, version, fact.2)
+                    metrics.cachedCaptureDates += 1
+                }
+              }
+            }
         }
+        let needsMetadata = primaries.filter { metadata[$0.path] == nil }
+        let dateBase = inspectMetadataCache ? 0.2 : 0.0
+        metadata.merge(try captureDates(needsMetadata, helper: helper, cancellation: cancellation, metrics: metrics) { index in
+            if index % 25 == 0 { progress(ImportProgress("Reading capture dates (\(index + 1) of \(needsMetadata.count))…", fraction: dateBase + (0.4 - dateBase) * Double(index) / Double(needsMetadata.count))) }
+        }) { _, fresh in fresh }
         progress(ImportProgress("Checking the destination for photos already imported…", fraction: 0.4))
         let library = try LibraryIndex(root: root, cancellation: cancellation, verificationCache: verificationCache, reuseCachedHashes: reuseCachedHashes)
         var planned: [PlannedFile] = [], groups: [PhotoGroup] = []
@@ -535,7 +561,14 @@ enum Importer {
                     progress(ImportProgress("Checking \(checked) of \(members.count): \(url.lastPathComponent)", fraction: 0.4 + 0.6 * Double(checked) / Double(members.count)))
                 }
                 let role = MediaTypes.role(of: url)!
-                let (sample, version) = try fingerprint(url, cancellation: cancellation, metrics: metrics)
+                let sample: String, version: stat
+                if let cached = cachedSources[url] {
+                    guard stable(cached.version, try info(url)) else { throw ImportError("Source changed while reading cached capture dates. Scan again.") }
+                    sample = cached.sample; version = cached.version
+                } else {
+                    let fresh = try fingerprint(url, cancellation: cancellation, metrics: metrics)
+                    sample = fresh.0; version = fresh.1
+                }
                 // Filesystem metadata updates can change ctime during metadata discovery.
                 // The preview snapshot below retains ctime for strict import-time checks.
                 guard let metadataVersion = metadataVersions[url], metadataVersion.st_dev == version.st_dev,
@@ -548,8 +581,12 @@ enum Importer {
                 var file = PlannedFile(source: url, role: role, group: groupID, namedPrimary: sidecarPrimary[url] ?? nil, size: size,
                                        fingerprint: sample, sourceInfo: version, digest: nil, existing: nil,
                                        ownDate: metadata[url.path]?.0, ownDateOrigin: metadata[url.path]?.1)
+                file.cachedCaptureMetadata = cachedSources[url] != nil
+                // Bind any reused date to the complete hash that originally established it.
+                // This remains required even if the destination copy has disappeared.
+                file.digest = cachedSources[url]?.hash
                 if role != .sidecar {
-                    var hash: String?
+                    var hash = file.digest
                     // Every confirmed copy matters when sidecars must be found beside one of them.
                     let found = try library.matches(source: url, size: size, fingerprint: sample, hash: &hash, all: !sourceGroup.sidecars.isEmpty,
                                                     cancellation: cancellation, metrics: metrics, sourceDevice: version.st_dev)
@@ -564,8 +601,11 @@ enum Importer {
                     file.digest = hash
                     seen[key, default: []].append(url)
                 }
-                file.cachedVerification = file.existing != nil && (library.cachedFiles.contains(url) || matches[url, default: []].contains { library.cachedFiles.contains($0) })
+                file.cachedVerification = file.existing != nil && (file.cachedCaptureMetadata || library.cachedFiles.contains(url) || matches[url, default: []].contains { library.cachedFiles.contains($0) })
                 guard stable(version, try info(url)) else { throw ImportError("Source changed during preview. Scan again.") }
+                if let cache = verificationCache, let namespace = cacheNamespace {
+                    cache.recordCaptureMetadata(url, namespace: namespace, info: version, sample: sample, day: file.ownDate, origin: file.ownDateOrigin)
+                }
                 indices.append(planned.count); planned.append(file)
             }
             let primaryIndices = indices.filter { planned[$0].role != .sidecar }, sidecarIndices = indices.filter { planned[$0].role == .sidecar }
@@ -762,11 +802,40 @@ enum Importer {
         }
     }
 
+    /// Cached date fields are untrusted preview hints. Re-read selected originals'
+    /// native metadata before any publication so even a corrupted cache cannot
+    /// silently choose the wrong date folder or falsify report provenance.
+    private static func confirmCachedCaptureDates(_ plan: inout ImportPlan, selected: Set<Int>, helper: MetadataHelper?,
+                                                  cancellation: Cancellation, progress: (ImportProgress) -> Void) throws {
+        let indices = plan.files.indices.filter { selected.contains(plan.files[$0].group) && plan.files[$0].cachedCaptureMetadata }
+        guard !indices.isEmpty else { return }
+        guard let helper else { throw ImportError("Cached capture dates need the built-in metadata reader. Run Full Verification before importing.") }
+        let files = indices.map { plan.files[$0] }
+        for file in files {
+            try assertDirectory(file.source.deletingLastPathComponent())
+            guard stable(file.sourceInfo, try info(file.source)) else { throw ImportError("Source changed since the preview. Scan again.") }
+        }
+        let fresh = try captureDates(files.map(\.source), helper: helper, cancellation: cancellation) { index in
+            if index % 25 == 0 { progress(ImportProgress("Confirming cached capture dates (\(index + 1) of \(files.count))…", fraction: 0)) }
+        }
+        for index in indices {
+            let file = plan.files[index]
+            guard let actual = fresh[file.source.path], actual.0 == file.ownDate else {
+                throw ImportError("A cached capture date does not match this original. Run Full Verification before importing.")
+            }
+            plan.files[index].ownDateOrigin = actual.1
+            plan.files[index].cachedCaptureMetadata = false
+        }
+        plan = try plan.organized(template: plan.settings.folderTemplate, event: plan.event, fallback: plan.fallback)
+    }
+
     /// Import the selected groups (all groups when `selection` is nil). Existing members are
     /// re-confirmed by content; new members are staged, verified, published, and verified again
     /// at the end. On cancellation or failure, completed groups stay and `ImportFailure` lists them.
-    static func run(_ plan: ImportPlan, selection: Set<Int>? = nil, cancellation: Cancellation, reportDirectory: URL? = nil,
-                    verificationCache: DuplicateVerificationCache? = nil, progress: (ImportProgress) -> Void) throws -> ImportResult {
+    static func run(_ preview: ImportPlan, selection: Set<Int>? = nil, cancellation: Cancellation, reportDirectory: URL? = nil,
+                    verificationCache: DuplicateVerificationCache? = nil, metadataHelper: MetadataHelper? = nil,
+                    progress: (ImportProgress) -> Void) throws -> ImportResult {
+        var plan = preview
         try validateLocations(source: plan.source, root: plan.root)
         let chosen = plan.groups.filter { selection?.contains($0.id) ?? true }
         guard !chosen.isEmpty else { throw ImportError("Select at least one photo to import.") }
@@ -793,6 +862,7 @@ enum Importer {
         let totalBytes = max(1, plan.bytes(in: Set(chosen.map(\.id))))
         var copiedBytes: UInt64 = 0
         do {
+            try confirmCachedCaptureDates(&plan, selected: Set(chosen.map(\.id)), helper: metadataHelper, cancellation: cancellation, progress: progress)
             try verifyCachedPreview(plan, selected: Set(chosen.map(\.id)), cancellation: cancellation, verificationCache: verificationCache, progress: progress)
             progress(ImportProgress("Rechecking the destination before copying…", fraction: 0))
             let library = try LibraryIndex(root: plan.root, cancellation: cancellation)
@@ -891,6 +961,8 @@ enum Importer {
                    stable(before, try info(target)), stable(file.sourceInfo, try info(file.source)) {
                     cache.record(file.source, namespace: namespace, info: file.sourceInfo, sample: file.fingerprint, hash: hash)
                     cache.record(target, namespace: namespace, info: before, sample: file.fingerprint, hash: hash)
+                    cache.recordCaptureMetadata(file.source, namespace: namespace, info: file.sourceInfo, sample: file.fingerprint, day: file.ownDate, origin: file.ownDateOrigin)
+                    cache.recordCaptureMetadata(target, namespace: namespace, info: before, sample: file.fingerprint, day: file.ownDate, origin: file.ownDateOrigin)
                 }
             }
             receipt.complete = true; try saveReceipt()

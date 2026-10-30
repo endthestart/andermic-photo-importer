@@ -63,3 +63,11 @@ The synthetic safety suite checks exact full-read accounting for cold, warm, exp
 
 
 Local cache workload results on the development host: a 30,000-record synthetic insert/eviction/save/reload exercise took approximately 0.44 seconds, peaked at 51.0 MiB RSS, and serialized 4.45 MB below the 8 MiB cap. These are synthetic cache-operation measurements, not a real-card scan speedup.
+
+## Capture-date cache follow-up (2026-10-30)
+
+Correcting the installed-copy mismatch enabled the existing verification cache on the real SD card. A warm production-Core engine pass took 19.71 seconds with 754 cached groups and 43 new groups, zero complete hash reads, and 361.40 MB of headers/samples. A separate timed pass took 26.68 seconds: listing/initial attributes about 4.19 seconds, capture metadata 12.87 seconds, destination inventory 4.37 seconds, and duplicate matching 5.25 seconds. It still read capture headers for all 797 originals.
+
+ADR-0012 adds optional native capture-day facts to the same verified-hash records. The first pass over a legacy hash-only cache enriches them without extending the full-hash TTL. The next warmed production-Core pass on this card measured **2.05 seconds**, still 797 groups / 43 new / 754 cached matches and zero full-hash reads. It reused 754 capture dates and read headers only for 43 originals: 11,272,192 header bytes plus 152,469,504 sampled bytes, or 163,741,696 bytes total. That is 754 fewer header reads and approximately 55% fewer logical read bytes. The earlier metadata-enrichment pass took 26.94 seconds and read the original 361.40 MB.
+
+These are read-only engine probes on the real mounted card, with OS caches warmed by prior work. They exclude AppKit rendering and cache-object initialization, and do not promise a two-second physical insertion after removal, sleep, or restart. Normal insertion and final UI qualification remain separate gates. Import retains full content verification and also independently confirms selected cached dates before publication; this change accelerates preview metadata, not the full import verification step.

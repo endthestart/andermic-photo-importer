@@ -27,3 +27,6 @@ The first preview after expiry/eviction, or after installation with no cache, pa
 USB preview still stages all originals and uses disposable snapshot paths, so it does not receive the same source-read savings as a stable mounted card/folder. This decision does not replace USB transfer staging or solve large destination enumeration. Advanced history, selectable detection modes, recovery automation, and a catalog database remain deferred.
 
 Synthetic regressions cover warm/cold reads, renamed originals, fixed TTL despite hits, clock rollback, identity/sample/root/path mismatches, bounded count/bytes/loading, corruption, symlinks, source edits, missing destinations, import-seeded entries, and deliberately incorrect cached source/destination hashes. The GUI exercises cached labels and the bypass command. The performance harness exercises 30,000 synthetic cache records under the existing resident-memory guard.
+
+
+ADR-0012 extends entries with optional native date facts to reduce repeat header reads. It retains this verification policy and cache bounds, keeps fallback dates out of the cache, and independently confirms selected cached dates before publication.
