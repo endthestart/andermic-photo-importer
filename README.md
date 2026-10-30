@@ -82,7 +82,10 @@ Settings and import reports are local files in `~/Library/Application Support/Co
 ./build.sh
 ./scripts/package.sh
 ./scripts/verify-package.sh
+git ls-files -z '*.swift' | xargs -0 xcrun swift-format lint --strict --configuration .swift-format
 ```
+
+Swift sources follow `.swift-format`; `git ls-files -z '*.swift' | xargs -0 xcrun swift-format format -i --configuration .swift-format` applies it. Run `git config blame.ignoreRevsFile .git-blame-ignore-revs` so blame skips formatting-only commits.
 
 `./build.sh` reads `APP_VERSION` (default: the `VERSION` file), `BUILD_NUMBER` (default 1), and `SIGNING_IDENTITY` (default: ad hoc). Launching with `-CorvusSettingsDirectory <folder>` keeps settings, reports, and the verification cache in that folder; `-CorvusUIScript` drives only the UI-exercise build. `xcrun swiftc scripts/make-icon.swift -o build/make-icon && build/make-icon Assets/AppIcon.png` redraws the icon.
 
