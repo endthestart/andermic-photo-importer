@@ -14,7 +14,7 @@ ADR-0003 requires a self-contained app: no Homebrew, separately installed ExifTo
 - The app runs the bundled interpreter with the bundled script by absolute path, with `-config ""` and an environment of only `PATH=/usr/bin:/bin` and `LC_ALL=C`, so `PERL5LIB`, `PERL5OPT`, and user ExifTool configuration cannot affect it. It never searches `PATH`, Homebrew, or the system Perl. The ExifTool path setting is removed.
 - The build signs every nested Mach-O (the interpreter and 48 XS `.bundle` modules) before sealing the app; Developer ID builds sign them with hardened runtime and timestamps.
 - Tests and CI use the same helper the app bundles. `verify-package.sh` checks the extracted archive's manifest against the lock file, every nested binary's architecture, signature, and system-only linkage, keeps `@INC` inside the bundle, and runs the packaged app's `--verify-metadata-helper` mode under `env -i` on a fixture whose date only ExifTool can supply.
-- About and Help → Third-Party Notices show component versions, sources, hashes, changes, and the full license texts.
+- About and Corvus → Third-Party Notices (the app menu; Help until 2026-10-30) show component versions, sources, hashes, changes, and the full license texts.
 
 ## Consequences
 
