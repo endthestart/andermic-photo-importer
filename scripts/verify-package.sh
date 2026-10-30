@@ -4,13 +4,13 @@ cd "$(dirname "$0")/.."
 source scripts/metadata-helper.lock
 version="${APP_VERSION:-$(cat VERSION)}"
 architecture="$(uname -m)"
-package="Andermic-Photo-Importer-${version}-${architecture}.zip"
+package="Corvus-${version}-${architecture}.zip"
 verification="build/archive-verification"
 rm -rf "$verification"
 mkdir -p "$verification"
 (cd dist && /usr/bin/shasum -a 256 --check "$package.sha256")
 /usr/bin/ditto -x -k "dist/$package" "$verification"
-app="$(pwd)/$verification/Andermic Photo Importer.app"
+app="$(pwd)/$verification/Corvus.app"
 /usr/bin/codesign --verify --deep --strict "$app"
 entitlements="$(/usr/bin/codesign -d --entitlements :- "$app" 2>/dev/null)"
 test "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.personal-information.photos-library' /dev/stdin <<<"$entitlements")" = true
@@ -20,7 +20,7 @@ test "$(/usr/libexec/PlistBuddy -c 'Print :LSUIElement' "$app/Contents/Info.plis
 test -s "$app/Contents/Resources/AppIcon.icns"
 cmp LICENSE "$app/Contents/Resources/LICENSE.txt"
 cmp THIRD_PARTY.md "$app/Contents/Resources/THIRD_PARTY.md"
-test "$(xcrun lipo -archs "$app/Contents/MacOS/PhotoImport")" = "$architecture"
+test "$(xcrun lipo -archs "$app/Contents/MacOS/corvus")" = "$architecture"
 
 # Bundled metadata helper: pinned versions, licenses, architecture, signatures, and system-only linkage.
 helper="$app/Contents/Resources/MetadataHelper"
@@ -48,7 +48,7 @@ done < <(find "$helper" -type f \( -name perl -o -name '*.bundle' \) -print0)
 # ExifTool provides, using the interpreter and library inside the extracted bundle.
 inc="$(env -i "$helper/perl/bin/perl" -e 'print join("\n", $^X, @INC)')"
 while IFS= read -r entry; do [[ "$entry" == "$helper/"* ]] || { echo "Helper path outside bundle: $entry" >&2; exit 1; }; done <<<"$inc"
-output="$(env -i PATH=/nonexistent "$app/Contents/MacOS/PhotoImport" --verify-metadata-helper "$(pwd)/Tests/Fixtures/create-date-only.jpg")"
+output="$(env -i PATH=/nonexistent "$app/Contents/MacOS/corvus" --verify-metadata-helper "$(pwd)/Tests/Fixtures/create-date-only.jpg")"
 echo "$output"
 grep -qx "perl=$helper/perl/bin/perl" <<<"$output"
 grep -q "version=$EXIFTOOL_VERSION\$" <<<"$output"

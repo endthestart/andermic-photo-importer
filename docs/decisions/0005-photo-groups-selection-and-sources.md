@@ -59,7 +59,7 @@ The original show-and-scan default and launch rule below were superseded on 2026
 
 ## Settings
 
-Settings move to `~/Library/Application Support/Andermic Photo Importer/settings.json` (schema 2). On first launch, a prototype `Photo Import/settings.json` is read once. Its destination, template, editor, and completion choices are kept, and the prototype file is left untouched. New installs default to `~/Pictures` and `{YYYY}/{MM}/{DD}`. An unreadable settings file is preserved as `settings-unreadable-<time>.json` before defaults are used. Reports are written to `Reports/` in the new directory; old reports stay where they are. Saved presets store destination, folder template, and after-import options.
+Settings move to `~/Library/Application Support/Andermic Photo Importer/settings.json` (schema 2; `Corvus/` since the 2026-10-30 rename, which adopts this folder once the same way). On first launch, a prototype `Photo Import/settings.json` is read once. Its destination, template, editor, and completion choices are kept, and the prototype file is left untouched. New installs default to `~/Pictures` and `{YYYY}/{MM}/{DD}`. An unreadable settings file is preserved as `settings-unreadable-<time>.json` before defaults are used. Reports are written to `Reports/` in the new directory; old reports stay where they are. Saved presets store destination, folder template, and after-import options.
 
 ## Consequences
 

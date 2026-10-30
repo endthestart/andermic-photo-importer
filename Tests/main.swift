@@ -419,22 +419,28 @@ let settingsRoot = root.appendingPathComponent("Settings"), legacyRoot = root.ap
 try fm.createDirectory(at: legacyRoot, withIntermediateDirectories: true)
 let legacyJSON = #"{"destination":"/Volumes/Photography/Photo Container","eject":true,"exiftool":"/opt/homebrew/bin/exiftool","folderTemplate":"{YYYY}/{MM}-{DD} - {event}","openInDxO":true,"photoLab":"/Applications/DXOPhotoLab10.app"}"#
 try Data(legacyJSON.utf8).write(to: legacyRoot.appendingPathComponent("settings.json"))
-let migrated = Settings.load(directory: settingsRoot, legacyDirectory: legacyRoot)
+let migrated = Settings.load(directory: settingsRoot, legacyDirectories: [legacyRoot])
 try check(migrated.destination == "/Volumes/Photography/Photo Container" && migrated.folderTemplate == "{YYYY}/{MM}-{DD} - {event}" && migrated.eject && migrated.openInDxO, "prototype settings keep the configured destination, template, and completion options")
 try check(migrated.launchInBackground && migrated.cardInsertion == .showAndScan && migrated.presets.isEmpty && migrated.schemaVersion == Settings.schema, "fields missing from prototype settings use new defaults")
 try check(fm.fileExists(atPath: settingsRoot.appendingPathComponent("settings.json").path) && (try Data(contentsOf: legacyRoot.appendingPathComponent("settings.json"))) == Data(legacyJSON.utf8), "migration writes the new location and leaves the prototype file untouched")
-let fresh = Settings.load(directory: root.appendingPathComponent("FreshSettings"), legacyDirectory: root.appendingPathComponent("NoLegacy"))
+let fresh = Settings.load(directory: root.appendingPathComponent("FreshSettings"), legacyDirectories: [root.appendingPathComponent("NoLegacy")])
 try check(fresh.destination == fm.urls(for: .picturesDirectory, in: .userDomainMask)[0].path && fresh.folderTemplate == "{YYYY}/{MM}/{DD}", "new users default to Pictures and year/month/day")
 var customized = migrated
 customized.cardInsertion = .scanInBackground
 customized.launchInBackground = false
 customized.presets = [ImportPreset(name: "Trips", destination: library.path, folderTemplate: "{YYYY}/{event}", openInEditor: false, eject: true)]
 try customized.save(to: settingsRoot)
-let reloaded = Settings.load(directory: settingsRoot, legacyDirectory: legacyRoot)
+let reloaded = Settings.load(directory: settingsRoot, legacyDirectories: [legacyRoot])
 try check(reloaded.cardInsertion == .scanInBackground && !reloaded.launchInBackground && reloaded.presets == customized.presets && reloaded.destination == customized.destination, "startup, background scanning, and saved presets persist")
 try Data("{not json".utf8).write(to: settingsRoot.appendingPathComponent("settings.json"))
-let recoveredSettings = Settings.load(directory: settingsRoot, legacyDirectory: legacyRoot)
+let recoveredSettings = Settings.load(directory: settingsRoot, legacyDirectories: [legacyRoot])
 try check(recoveredSettings.folderTemplate == Settings.defaultTemplate && (try fm.contentsOfDirectory(atPath: settingsRoot.path)).contains { $0.hasPrefix("settings-unreadable-") }, "an unreadable settings file is preserved before defaults are used")
+let renamedRoot = root.appendingPathComponent("RenamedSettings"), previousNameRoot = root.appendingPathComponent("PreviousNameSettings")
+try customized.save(to: previousNameRoot)
+let previousNameJSON = try Data(contentsOf: previousNameRoot.appendingPathComponent("settings.json"))
+let renamed = Settings.load(directory: renamedRoot, legacyDirectories: [previousNameRoot, legacyRoot])
+try check(renamed.presets == customized.presets && !renamed.launchInBackground && renamed.cardInsertion == .scanInBackground, "the previous app name's settings win over the prototype's")
+try check((try Data(contentsOf: previousNameRoot.appendingPathComponent("settings.json"))) == previousNameJSON && (try Data(contentsOf: legacyRoot.appendingPathComponent("settings.json"))) == Data(legacyJSON.utf8), "renaming leaves earlier settings files untouched")
 
 // MARK: Bounded preview reads
 // Cold-scan workload: large new originals among same-size unrelated destination files.
@@ -748,5 +754,23 @@ try rejects("import rejects stale cached source hashes even when samples agree")
 try check((try bytes(strictlyImported.outcomes[cacheOriginal.path]!)) == cacheOriginalBytes, "rejected stale source hint leaves verified originals untouched")
 try fm.removeItem(at: strictlyImported.outcomes[cacheOriginal.path]!)
 try check(try cachedPlan().files.first?.existing == nil, "deleting a cached destination cannot hide a missing copy")
+
+// MARK: Design tokens
+// The shared table in docs/DESIGN-TOKENS.md is the source of truth; the app's constants must match it.
+let tokenDocument = try String(contentsOfFile: "docs/DESIGN-TOKENS.md", encoding: .utf8)
+func tokenRows(_ heading: String) -> [[String]] {
+    guard let section = tokenDocument.components(separatedBy: "\n## ").first(where: { $0.hasPrefix(heading + "\n") }) else { return [] }
+    return section.split(separator: "\n").filter { $0.hasPrefix("| ") }.dropFirst()
+        .map { $0.split(separator: "|").map { $0.trimmingCharacters(in: .whitespaces) } }
+}
+try check(tokenDocument.hasPrefix("# SENEX family design tokens v\(DesignTokens.version)\n"), "design tokens follow the shared table's version")
+let documentedColors = Dictionary(uniqueKeysWithValues: tokenRows("Colours").map { ($0[0], UInt32($0[1].dropFirst(), radix: 16)) })
+try check(documentedColors == DesignTokens.colors.mapValues { Optional($0) }, "colour tokens match the shared table")
+let documentedRadii = Dictionary(uniqueKeysWithValues: tokenRows("Corner radii").map { ($0[0], Double($0[1])) })
+try check(documentedRadii == DesignTokens.radii.mapValues { Optional($0) }, "corner radii match the shared table")
+let documentedType = Dictionary(uniqueKeysWithValues: tokenRows("Type roles").map { row in
+    (row[0], Double(row[1]).map { DesignTokens.TypeRole(size: $0, semibold: row[2] == "Semibold") })
+})
+try check(documentedType == DesignTokens.type.mapValues { Optional($0) }, "type roles match the shared table")
 
 print("\(checks) checks passed. Fixtures removed; no real card or photo library was modified.")

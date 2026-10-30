@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     #endif
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.appearance = NSAppearance(named: .darkAqua)
         controller = MainWindowController(settings: Settings.load(), helper: MetadataHelper.bundled())
         createMenus()
         controller.onStateChange = { [weak self] in self?.updateStatusItem() }
@@ -30,7 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         automation = UIAutomation(controller: controller)
         #endif
         if controller.helper == nil {
-            controller.showError(ImportError("The app's built-in metadata reader is missing. Reinstall Andermic Photo Importer."))
+            controller.showError("Metadata reader missing", ImportError("The app's built-in metadata reader is missing. Reinstall Corvus."))
         }
     }
 
@@ -83,7 +84,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc func showAbout() {
         let versions = controller.helper?.readManifest()?.components.map { "\($0.name) \($0.version)" }.joined(separator: " and ") ?? "no metadata helper"
         let credits = NSAttributedString(string: "Copies only new photos into ordinary folders and verifies every file. Includes \(versions); see Third-Party Notices.",
-                                         attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor])
+                                         attributes: [.font: Theme.font("note"), .foregroundColor: Theme.muted])
         presentWindow()
         NSApp.orderFrontStandardAboutPanel(options: [.credits: credits])
         NSApp.activate(ignoringOtherApps: true)
@@ -132,7 +133,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
             return item
         }
-        let name = "Andermic Photo Importer"
+        let name = "Corvus"
         _ = submenu(name, [
             item("About \(name)", #selector(showAbout)),
             item("Third-Party Notices…", #selector(showNotices)),
@@ -180,12 +181,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let window = submenu("Window", [
             item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m", target: .responderChain),
             item("Zoom", #selector(NSWindow.performZoom(_:)), target: .responderChain),
+            item("Bring All to Front", #selector(NSApplication.arrangeInFront(_:)), target: .object(NSApp)),
             .separator(),
-            item("Andermic Photo Importer", #selector(showWindow), "0"),
+            item("Corvus", #selector(showWindow), "0"),
         ])
         NSApp.windowsMenu = window
-        let help = submenu("Help", [item("Third-Party Notices", #selector(showNotices))])
-        NSApp.helpMenu = help
         NSApp.mainMenu = main
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -203,8 +203,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard let button = statusItem?.button else { return }
         let available = !controller.newlyAvailable.isEmpty
         let symbol = controller.state == .importing ? "arrow.down.circle" : (available ? "sdcard.fill" : "camera.badge.ellipsis")
-        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Andermic Photo Importer")
+        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Corvus")
         button.toolTip = available ? "Card available: " + controller.newlyAvailable.map(\.lastPathComponent).sorted().joined(separator: ", ")
-            : (controller.state == .importing ? "Importing photos…" : "Andermic Photo Importer")
+            : (controller.state == .importing ? "Importing photos…" : "Corvus")
     }
 }

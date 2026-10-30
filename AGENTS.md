@@ -1,6 +1,6 @@
 # Repository guidance
 
-Andermic Photo Importer is a native macOS utility for safely importing new photo/video originals into ordinary folders. The product is local, has no account or catalog database, and delegates photo development to DxO or another editor.
+Corvus (SENEX Corvus, formerly Andermic Photo Importer) is a native macOS utility for safely importing new photo/video originals into ordinary folders. The product is local, has no account or catalog database, and delegates photo development to DxO or another editor.
 
 - Preserve originals byte-for-byte. Never delete files from camera cards, overwrite an existing destination, or silently invent a capture date.
 - Keep all credentials, personal photos, local import reports, certificates, and workstation settings out of Git.

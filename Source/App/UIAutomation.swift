@@ -5,7 +5,7 @@ import AppKit
 /// No Image Capture device is constructed or accessed by this fixture.
 final class FixtureCameraSource: CameraImportSource {
     let name = "Synthetic Z 8 (USB)"
-    let url = URL(string: "andermic-camera://synthetic/Z%208")!
+    let url = URL(string: "corvus-camera://synthetic/Z%208")!
     let directory: URL
     init(_ directory: URL) { self.directory = directory }
     func prepare(cancellation: Cancellation, progress: @escaping (ImportProgress) -> Void,
@@ -62,7 +62,7 @@ final class UIAutomation {
     let savedPasteboard: [[NSPasteboard.PasteboardType: Data]]
 
     init?(controller: MainWindowController) {
-        guard let path = UserDefaults.standard.string(forKey: "AndermicUIScript"),
+        guard let path = UserDefaults.standard.string(forKey: "CorvusUIScript"),
               let text = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
         self.controller = controller
         savedPasteboard = (NSPasteboard.general.pasteboardItems ?? []).map { item in
@@ -229,7 +229,7 @@ final class UIAutomation {
             let fixture = FixtureCameraSource(URL(fileURLWithPath: argument))
             controller.camerasChanged([fixture], inserted: fixture)
         case "cameraSelect":
-            if let index = controller.sidebarRows.firstIndex(where: { $0.url?.scheme == "andermic-camera" }) {
+            if let index = controller.sidebarRows.firstIndex(where: { $0.url?.scheme == "corvus-camera" }) {
                 controller.sidebar.selectRowIndexes([index], byExtendingSelection: false); controller.sidebarClicked()
             } else { write("FAIL synthetic camera missing from sidebar") }
         case "cameraRemove":
@@ -316,7 +316,7 @@ final class UIAutomation {
             case "tray": actual = String((NSApp.delegate as? AppDelegate)?.statusItem.button != nil)
             case "groups": actual = String(controller.plan?.groups.count ?? 0)
             case "hasSource": actual = String(controller.source != nil)
-            case "cameraSource": actual = String(controller.source?.scheme == "andermic-camera")
+            case "cameraSource": actual = String(controller.source?.scheme == "corvus-camera")
             case "ejectEnabled": actual = String(controller.ejectCheck.isEnabled)
             case "backgroundLaunch": actual = String(controller.settings.launchInBackground)
             case "visible": actual = String(controller.window!.isVisible)

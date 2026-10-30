@@ -46,4 +46,4 @@ Ordering is not yet selected; none blocks the first public release.
 - Richer menu-bar status, such as counts of new photos ready: explicitly deferred.
 - Linux: possible later platform; retain the native macOS foundation for the first release.
 - Culling: outside the agreed first-release and advanced-import scope. Reconsider only after a separate product decision establishes a concrete need and portable state/interoperability requirements.
-- Domain hosting: choose an owner-controlled Andermic domain/subdomain and hosting service for a small product page with screenshots, setup, release notes, and signed downloads. No DNS changes or website publication are authorized by this discovery work.
+- Domain hosting: choose an owner-controlled SENEX domain, shared with Pictor for bundle identifiers, and a hosting service for a small product page with screenshots, setup, release notes, and signed downloads. No DNS changes or website publication are authorized by this discovery work.

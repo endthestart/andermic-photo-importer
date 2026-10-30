@@ -6,20 +6,20 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 root="$(pwd)/build/ui-exercise"
-app="$root/Andermic Photo Importer.app"
+app="$root/Corvus.app"
 screens="$(pwd)/build/screens"
-test -d "dist/Andermic Photo Importer.app" || ./build.sh
-pkill -f "$root/Andermic Photo Importer.app" 2>/dev/null || true
+test -d "dist/Corvus.app" || ./build.sh
+pkill -f "$root/Corvus.app" 2>/dev/null || true
 for volume in /Volumes/SYNTHCARD*; do [[ -d "$volume" ]] && hdiutil detach "$volume" -quiet || true; done
 rm -rf "$root" "$screens"; mkdir -p "$root/run" "$root/Library" "$root/Settings" "$screens"
 
 # Test-only app: the shipped bundle with an executable that also contains the driver.
-ditto "dist/Andermic Photo Importer.app" "$app"
+ditto "dist/Corvus.app" "$app"
 # TCC tracks the bundle identity and signature. Test binaries must not replace
 # the installed app's privacy identity when their ad hoc code hashes change.
 /usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier net.andermic.photoimporter.ui-exercise' "$app/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c 'Set :CFBundleDisplayName Andermic Photo Importer UI Tests' "$app/Contents/Info.plist"
-xcrun swiftc -swift-version 5 -O -D UI_AUTOMATION -module-cache-path build/module-cache Source/Core/*.swift Source/App/*.swift -o "$app/Contents/MacOS/PhotoImport"
+/usr/libexec/PlistBuddy -c 'Set :CFBundleDisplayName Corvus UI Tests' "$app/Contents/Info.plist"
+xcrun swiftc -swift-version 5 -O -D UI_AUTOMATION -module-cache-path build/module-cache Source/Core/*.swift Source/App/*.swift -o "$app/Contents/MacOS/corvus"
 codesign --force --sign - --entitlements scripts/camera.entitlements "$app"
 
 # Fixtures: a 26-photo folder card, a large card for cancellation, and a DMG card for insertion.
@@ -46,7 +46,7 @@ wait 1
 expect visible false
 expect policy accessory
 expect tray true
-tray Show Andermic Photo Importer
+tray Show Corvus
 wait 1
 expect visible true
 expect policy regular
@@ -217,7 +217,7 @@ wait 1
 expect visible false
 expect policy accessory
 expect tray true
-tray Show Andermic Photo Importer
+tray Show Corvus
 wait 1
 expect visible true
 expect policy regular
@@ -331,7 +331,7 @@ expect backgroundLaunch false
 quit
 STEPS
 
-open -n "$app" --args -AndermicSettingsDirectory "$root/Settings" -AndermicUIScript "$root/run/script.txt"
+open -n "$app" --args -CorvusSettingsDirectory "$root/Settings" -CorvusUIScript "$root/run/script.txt"
 log="$root/run/script.txt.log"
 deadline=$((SECONDS + 300)); handled=0
 while (( SECONDS < deadline )); do
@@ -378,13 +378,13 @@ close
 wait 1
 expect visible false
 expect policy accessory
-tray Show Andermic Photo Importer
+tray Show Corvus
 wait 1
 expect visible true
 expect policy regular
 quit
 STEPS
-open -n "$app" --args -AndermicSettingsDirectory "$root/Settings" -AndermicUIScript "$root/run/foreground.txt"
+open -n "$app" --args -CorvusSettingsDirectory "$root/Settings" -CorvusUIScript "$root/run/foreground.txt"
 foregroundLog="$root/run/foreground.txt.log"
 deadline=$((SECONDS + 30))
 while (( SECONDS < deadline )); do

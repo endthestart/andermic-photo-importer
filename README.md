@@ -1,6 +1,6 @@
-# Andermic Photo Importer
+# SENEX Corvus
 
-A lightweight native macOS app that copies **only new photo and video originals** from a camera card or folder into ordinary folders. No account, cloud service, telemetry, or photo library database. Photo development stays in DxO PhotoLab or your preferred editor.
+Corvus is a lightweight native macOS app that copies **only new photo and video originals** from a camera card or folder into ordinary folders. No account, cloud service, telemetry, or photo library database. Photo development stays in DxO PhotoLab or your preferred editor.
 
 ![App icon](Assets/AppIcon.png)
 
@@ -24,16 +24,16 @@ After installation finishes:
 git clone https://github.com/endthestart/andermic-photo-importer.git
 cd andermic-photo-importer
 ./build.sh
-open "dist/Andermic Photo Importer.app"
+open dist/Corvus.app
 ```
 
-The first build downloads pinned, checksum-verified Perl and ExifTool sources and compiles the bundled metadata reader (about two minutes on the development Mac). Later builds reuse it. The app builds for your Mac’s architecture. For a permanent installation, quit the app and drag `dist/Andermic Photo Importer.app` into Applications, then open that copy.
+The first build downloads pinned, checksum-verified Perl and ExifTool sources and compiles the bundled metadata reader (about two minutes on the development Mac). Later builds reuse it. The app builds for your Mac’s architecture. For a permanent installation, quit the app and drag `dist/Corvus.app` into Applications, then open that copy.
 
 To update, quit the app, run `git pull --ff-only` and `./build.sh`, and replace your installed copy. Your destination, folder layout, presets, and reports stay in Application Support.
 
 ## Use it
 
-1. Open the app. By default it starts in the menu bar without a window. Click its icon and choose **Show Andermic Photo Importer**. Nothing else needs to be installed: metadata reading is built in.
+1. Open the app. By default it starts in the menu bar without a window. Click its icon and choose **Show Corvus**. Nothing else needs to be installed: metadata reading is built in.
 2. Insert a camera card. New installations scan in the background by default; reopen the window to review the preview. You can also choose a folder (⌘O), drop one on the grid, or open one with the app. Scanning only previews; nothing is copied until you click an import button.
 3. Review the thumbnail grid. New photos are selected. Click a photo to include or exclude it, and Shift-click to toggle a range. Filter by date or file type, or hide photos already imported.
 4. Check **Import Options**. The destination defaults to your Pictures folder, and the folder structure defaults to Year / Month / Day (`~/Pictures/2026/10/04/`). Choices are remembered and can be saved as presets. An event name is optional.
@@ -71,7 +71,7 @@ RAW+JPEG pairs, Live Photo HEIC+MOV pairs, and sidecars (`.xmp`, `.dop`, `.pp3`,
 
 Photo formats include NEF, NRW, CR2/CR3, ARW, RAF, ORF, RW2, DNG, GPR, JPEG, HEIC/HEIF, TIFF, PNG, and others in `MediaTypes`, plus common video formats. **Limitation:** an original whose embedded metadata was edited by another app has a different hash and appears new.
 
-Settings and import reports are local files in `~/Library/Application Support/Andermic Photo Importer/`. Prototype settings from `Photo Import/` are adopted once and left in place.
+Settings and import reports are local files in `~/Library/Application Support/Corvus/`. Settings from the earlier `Andermic Photo Importer/` or prototype `Photo Import/` folder are adopted once and left in place, along with any earlier reports.
 
 ## Development checks
 
@@ -93,8 +93,8 @@ Tests use disposable synthetic originals. Package verification checks signatures
 - [Release instructions](docs/RELEASE.md) cover source previews now and Developer ID signing/notarization later.
 - Report reproducible problems in [GitHub Issues](https://github.com/endthestart/andermic-photo-importer/issues). Include macOS version, architecture, file formats, and the steps; remove personal paths and photo metadata from reports before sharing. This is an early preview with no support or compatibility guarantee.
 
-Product behavior: [specification](docs/SPEC.md). Decisions: [ADR-0001](docs/decisions/0001-local-importer-and-release-foundation.md) to [ADR-0007](docs/decisions/0007-menu-bar-lifecycle.md). Evidence: [validation](docs/VALIDATION.md).
+Product behavior: [specification](docs/SPEC.md). Decisions: [ADR-0001](docs/decisions/0001-local-importer-and-release-foundation.md) to [ADR-0011](docs/decisions/0011-expiring-preview-verification-cache.md). Look: [SENEX family design tokens](docs/DESIGN-TOKENS.md), shared with SENEX Pictor. Evidence: [validation](docs/VALIDATION.md).
 
 ## License
 
-The app’s source is under the [MIT License](LICENSE). Bundled ExifTool and Perl retain their own licenses and notices; see [THIRD_PARTY.md](THIRD_PARTY.md) and **Help → Third-Party Notices** in the app. The icon is the accepted Aperture A concept; builds generate macOS icon sizes from the original PNG.
+The app’s source is under the [MIT License](LICENSE). Bundled ExifTool and Perl retain their own licenses and notices; see [THIRD_PARTY.md](THIRD_PARTY.md) and **Corvus → Third-Party Notices** in the app. The icon shows the Corvus (Crow) constellation on the SENEX family night-sky tile; `scripts/make-icon.swift` draws it from the [icon template](docs/DESIGN-TOKENS.md#icon-template), and builds generate the macOS icon sizes from that PNG.

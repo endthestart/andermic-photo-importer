@@ -40,7 +40,7 @@ enum CameraStaging {
         // source-symlink refusal remains intact, including on macOS temporary paths.
         let root = try temporaryRoot ?? workingDirectory()
         try Importer.assertDirectory(root)
-        let directory = root.appendingPathComponent("andermic-camera-" + UUID().uuidString, isDirectory: true)
+        let directory = root.appendingPathComponent("corvus-camera-" + UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
         var keep = false
         defer { if !keep { try? FileManager.default.removeItem(at: directory) } }
@@ -98,7 +98,7 @@ enum CameraStaging {
 
     static func workingDirectory() throws -> URL {
         let caches = try FileManager.default.url(for: .cachesDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-        let directory = caches.appendingPathComponent("Andermic Photo Importer/CameraTransfers", isDirectory: true)
+        let directory = caches.appendingPathComponent("Corvus/CameraTransfers", isDirectory: true)
         // Validate existing ancestors before creating our own directories.
         try Importer.assertDirectory(caches)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])

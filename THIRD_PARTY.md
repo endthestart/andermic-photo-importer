@@ -1,6 +1,6 @@
 # Third-party components
 
-The MIT license in `LICENSE` covers Andermic Photo Importer’s source. It does not replace upstream component licenses.
+The MIT license in `LICENSE` covers Corvus’s source. It does not replace upstream component licenses.
 
 The build downloads and compiles these components from checksum-verified sources pinned in `scripts/metadata-helper.lock`:
 

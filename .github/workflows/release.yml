@@ -63,7 +63,7 @@ jobs:
       - name: Write release notes
         run: |
           cat > release-notes.md <<'NOTES'
-          MIT-licensed source preview of Andermic Photo Importer. Build and install locally on macOS using README.md. Apple Developer Program membership is not needed for local builds.
+          MIT-licensed source preview of SENEX Corvus. Build and install locally on macOS using README.md. Apple Developer Program membership is not needed for local builds.
 
           This release contains source only. Use GitHub’s Source code ZIP or tar archive below, or clone the repository. No prebuilt app binaries are attached.
 
@@ -84,5 +84,5 @@ jobs:
             gh release edit "$RELEASE_TAG" --notes-file release-notes.md
           else
             gh release create "$RELEASE_TAG" --verify-tag --draft --prerelease \
-              --title "Andermic Photo Importer $RELEASE_TAG — source preview" --notes-file release-notes.md
+              --title "SENEX Corvus $RELEASE_TAG — source preview" --notes-file release-notes.md
           fi

@@ -19,7 +19,7 @@ final class CameraMonitor: NSObject, ICDeviceBrowserDelegate {
     func start() {
         #if UI_AUTOMATION
         // GUI fixtures must never discover/open the owner's connected cameras.
-        if UserDefaults.standard.string(forKey: "AndermicUIScript") != nil { return }
+        if UserDefaults.standard.string(forKey: "CorvusUIScript") != nil { return }
         #endif
         browser.delegate = self
         browser.browsedDeviceTypeMask = ICDeviceTypeMask(rawValue: ICDeviceTypeMask.camera.rawValue | ICDeviceLocationTypeMask.local.rawValue)!
@@ -56,7 +56,7 @@ final class CameraSource: NSObject, ICCameraDeviceDelegate, CameraImportSource {
 
     init(_ device: ICCameraDevice) {
         self.device = device; name = device.name ?? "USB camera"
-        var parts = URLComponents(); parts.scheme = "andermic-camera"; parts.host = UUID().uuidString
+        var parts = URLComponents(); parts.scheme = "corvus-camera"; parts.host = UUID().uuidString
         parts.path = "/" + (device.name ?? "USB camera")
         url = parts.url!
         super.init()

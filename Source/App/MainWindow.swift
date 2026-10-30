@@ -39,7 +39,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     var verificationCacheDirectory: URL {
         if let override = Settings.overrideDirectory { return override.appendingPathComponent("VerificationCache", isDirectory: true) }
         return FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Andermic Photo Importer/DuplicateVerification", isDirectory: true)
+            .appendingPathComponent("Corvus/DuplicateVerification", isDirectory: true)
     }
     var notices: NoticesWindow?
 
@@ -79,7 +79,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     let collection = PhotoCollectionView()
     let gridScroll = DropScrollView()
     let emptyState = NSTextField(wrappingLabelWithString: "")
-    let progressBar = NSProgressIndicator()
+    let progressBar = PillProgress()
     let statusLabel = NSTextField(labelWithString: "")
     let selectionLabel = NSTextField(labelWithString: "")
     let cancelButton = NSButton(title: "Stop", target: nil, action: nil)
@@ -114,7 +114,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         self.settings = settings; self.helper = helper
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1320, height: 820),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
-        window.title = "Andermic Photo Importer"
+        window.title = "Corvus"
         window.minSize = NSSize(width: 1040, height: 620)
         window.isReleasedWhenClosed = false
         window.toolbarStyle = .unified
@@ -207,8 +207,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     }
 
     func buildCenter() -> NSView {
-        titleLabel.font = .systemFont(ofSize: 18, weight: .semibold); titleLabel.lineBreakMode = .byTruncatingMiddle
-        countsLabel.font = .systemFont(ofSize: 12); countsLabel.textColor = .secondaryLabelColor
+        titleLabel.font = Theme.font("heading"); titleLabel.textColor = Theme.text; titleLabel.lineBreakMode = .byTruncatingMiddle
+        countsLabel.font = Theme.font("secondary"); countsLabel.textColor = Theme.muted
         countsLabel.lineBreakMode = .byTruncatingTail
         countsLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         datePopup.target = self; datePopup.action = #selector(filtersChanged); datePopup.controlSize = .small
@@ -221,7 +221,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         sizeSlider.widthAnchor.constraint(equalToConstant: 90).isActive = true
         let smallIcon = NSImageView(image: NSImage(systemSymbolName: "photo", accessibilityDescription: nil)!)
         let largeIcon = NSImageView(image: NSImage(systemSymbolName: "photo", accessibilityDescription: nil)!.withSymbolConfiguration(.init(pointSize: 15, weight: .regular))!)
-        for icon in [smallIcon, largeIcon] { icon.contentTintColor = .secondaryLabelColor }
+        for icon in [smallIcon, largeIcon] { icon.contentTintColor = Theme.muted }
         let titles = NSStackView(views: [titleLabel, countsLabel]); titles.orientation = .vertical; titles.alignment = .leading; titles.spacing = 2
         titles.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         selectAllButton.target = self; selectAllButton.action = #selector(selectAll(_:))
@@ -247,18 +247,16 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         collection.dataSource = self; collection.delegate = self
         collection.isSelectable = false
         collection.onSelectAll = { [weak self] in self?.selectAll(nil) }
-        collection.backgroundColors = [.windowBackgroundColor]
+        collection.backgroundColors = [Theme.ground]
         collection.register(GroupTileItem.self, forItemWithIdentifier: GroupTileItem.identifier)
         collection.register(SectionHeader.self, forSupplementaryViewOfKind: NSCollectionView.elementKindSectionHeader, withIdentifier: SectionHeader.identifier)
         collection.setAccessibilityLabel("Photos to import")
         gridScroll.documentView = collection; gridScroll.hasVerticalScroller = true; gridScroll.drawsBackground = false
         gridScroll.onDropFolder = { [weak self] url in self?.setSource(url, scan: true) }
-        emptyState.alignment = .center; emptyState.textColor = .secondaryLabelColor; emptyState.font = .systemFont(ofSize: 14)
+        emptyState.alignment = .center; emptyState.textColor = Theme.muted; emptyState.font = .systemFont(ofSize: 13)
 
-        progressBar.style = .bar; progressBar.isIndeterminate = true; progressBar.isDisplayedWhenStopped = false
-        progressBar.controlSize = .small; progressBar.minValue = 0; progressBar.maxValue = 1
         progressBar.widthAnchor.constraint(equalToConstant: 140).isActive = true
-        statusLabel.font = .systemFont(ofSize: 12); statusLabel.textColor = .secondaryLabelColor; statusLabel.lineBreakMode = .byTruncatingTail
+        statusLabel.font = Theme.font("secondary"); statusLabel.textColor = Theme.muted; statusLabel.lineBreakMode = .byTruncatingTail
         statusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         selectionLabel.font = .systemFont(ofSize: 12, weight: .medium); selectionLabel.lineBreakMode = .byTruncatingTail
         selectionLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -272,7 +270,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         footer.spacing = 10; footer.alignment = .centerY
         footer.edgeInsets = NSEdgeInsets(top: 10, left: 20, bottom: 12, right: 20)
 
-        let view = NSView()
+        let view = NSView(); Theme.fill(view, Theme.chrome)
         let topRule = NSBox(), bottomRule = NSBox(); topRule.boxType = .separator; bottomRule.boxType = .separator
         for item in [header, topRule, gridScroll, emptyState, bottomRule, footer] as [NSView] { item.translatesAutoresizingMaskIntoConstraints = false; view.addSubview(item) }
         NSLayoutConstraint.activate([
@@ -305,18 +303,18 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         templateField.font = .monospacedSystemFont(ofSize: 12, weight: .regular); templateField.delegate = self
         templateField.setAccessibilityLabel("Folder template")
         eventField.placeholderString = "For example, Lisbon Trip"; eventField.delegate = self; eventField.setAccessibilityLabel("Event name")
-        previewLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular); previewLabel.textColor = .secondaryLabelColor
+        previewLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular); previewLabel.textColor = Theme.muted
         previewLabel.setAccessibilityLabel("Destination preview")
         fallbackPicker.datePickerStyle = .textFieldAndStepper; fallbackPicker.datePickerElements = [.yearMonthDay]; fallbackPicker.dateValue = Date()
         fallbackPicker.target = self; fallbackPicker.action = #selector(organizationChanged)
         fallbackCheck.target = self; fallbackCheck.action = #selector(organizationChanged)
         fallbackBox.orientation = .vertical; fallbackBox.alignment = .leading; fallbackBox.spacing = 6
-        for view in [section("MISSING CAPTURE DATES"), small("Some photos have no capture date. Nothing is guessed: choose a date for them, or leave them unselected."), fallbackCheck, fallbackPicker] {
+        for view in [section("Missing capture dates"), small("Some photos have no capture date. Nothing is guessed: choose a date for them, or leave them unselected."), fallbackCheck, fallbackPicker] {
             fallbackBox.addArrangedSubview(view)
         }
         openEditor.target = self; openEditor.action = #selector(completionChanged)
         ejectCheck.target = self; ejectCheck.action = #selector(completionChanged)
-        editorNote.font = .systemFont(ofSize: 11); editorNote.textColor = .secondaryLabelColor
+        editorNote.font = Theme.font("note"); editorNote.textColor = Theme.muted
         advancedToggle.bezelStyle = .disclosure; advancedToggle.setButtonType(.pushOnPushOff); advancedToggle.state = .off
         advancedToggle.target = self; advancedToggle.action = #selector(toggleAdvanced); advancedToggle.setAccessibilityLabel("Show advanced options")
         let advancedTitle = NSButton(title: "Advanced", target: self, action: #selector(toggleAdvancedFromTitle)); advancedTitle.isBordered = false
@@ -327,7 +325,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         cardBehaviorPopup.setAccessibilityLabel("When a card is inserted")
         backgroundLaunch.target = self; backgroundLaunch.action = #selector(backgroundLaunchChanged)
         let loginItems = NSButton(title: "Login Items…", target: NSApp.delegate, action: #selector(AppDelegate.showLoginItems))
-        editorPath.font = .systemFont(ofSize: 11); editorPath.textColor = .secondaryLabelColor; editorPath.lineBreakMode = .byTruncatingMiddle
+        editorPath.font = Theme.font("note"); editorPath.textColor = Theme.muted; editorPath.lineBreakMode = .byTruncatingMiddle
         let chooseEditor = NSButton(title: "Choose Editor…", target: self, action: #selector(chooseEditor))
         let reportsButton = NSButton(title: "Show Import Reports", target: self, action: #selector(showReports))
         let noticesButton = NSButton(title: "Third-Party Notices…", target: NSApp.delegate, action: #selector(AppDelegate.showNotices))
@@ -344,7 +342,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         }
         advancedBox.isHidden = true
 
-        let folderIcon = NSImageView(image: NSImage(systemSymbolName: "folder", accessibilityDescription: nil)!); folderIcon.contentTintColor = .controlAccentColor
+        let folderIcon = NSImageView(image: NSImage(systemSymbolName: "folder", accessibilityDescription: nil)!); folderIcon.contentTintColor = Theme.accent
         let destinationRow = NSStackView(views: [folderIcon, destinationPath, destinationButton]); destinationRow.spacing = 6
         destinationPath.setContentHuggingPriority(.defaultLow, for: .horizontal)
         destinationPath.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -352,16 +350,16 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         content.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 20, right: 16)
         let views: [NSView] = [
             heading("Import Options"),
-            section("PRESET"), presetPopup,
+            section("Preset"), presetPopup,
             divider(),
-            section("DESTINATION"), destinationRow,
-            section("FOLDER STRUCTURE"), structurePopup, templateField,
-            section("EVENT NAME (OPTIONAL)"), eventField,
+            section("Destination"), destinationRow,
+            section("Folder structure"), structurePopup, templateField,
+            section("Event name (optional)"), eventField,
             small("Only used by structures that include {event}. Photos from several days go into each day's folder."),
-            section("RESULTING FOLDERS"), previewLabel,
+            section("Resulting folders"), previewLabel,
             fallbackBox,
             divider(),
-            section("AFTER IMPORT"), openEditor, editorNote, ejectCheck,
+            section("After import"), openEditor, editorNote, ejectCheck,
             divider(),
             advancedRow, advancedBox,
         ]
@@ -376,7 +374,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         let document = FlippedView(); document.translatesAutoresizingMaskIntoConstraints = false
         content.translatesAutoresizingMaskIntoConstraints = false; document.addSubview(content)
         let scroll = NSScrollView(); scroll.documentView = document; scroll.hasVerticalScroller = true; scroll.drawsBackground = false
-        let view = NSView(); scroll.translatesAutoresizingMaskIntoConstraints = false; view.addSubview(scroll)
+        let view = NSView(); Theme.fill(view, Theme.chrome); scroll.translatesAutoresizingMaskIntoConstraints = false; view.addSubview(scroll)
         NSLayoutConstraint.activate([
             scroll.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor), scroll.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             scroll.leadingAnchor.constraint(equalTo: view.leadingAnchor), scroll.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -387,10 +385,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         return view
     }
 
-    func heading(_ text: String) -> NSTextField { let field = NSTextField(labelWithString: text); field.font = .systemFont(ofSize: 15, weight: .semibold); return field }
-    func section(_ text: String) -> NSTextField { let field = NSTextField(labelWithString: text); field.font = .systemFont(ofSize: 10, weight: .semibold); field.textColor = .secondaryLabelColor; return field }
+    func heading(_ text: String) -> NSTextField { let field = NSTextField(labelWithString: text); field.font = Theme.font("panel"); field.textColor = Theme.text; return field }
+    func section(_ text: String) -> NSTextField { Theme.sectionLabel(text) }
     func label(_ text: String) -> NSTextField { let field = NSTextField(labelWithString: text); field.font = .systemFont(ofSize: 12, weight: .medium); return field }
-    func small(_ text: String) -> NSTextField { let field = NSTextField(wrappingLabelWithString: text); field.font = .systemFont(ofSize: 11); field.textColor = .secondaryLabelColor; return field }
+    func small(_ text: String) -> NSTextField { let field = NSTextField(wrappingLabelWithString: text); field.font = Theme.font("note"); field.textColor = Theme.muted; return field }
     func divider() -> NSBox { let box = NSBox(); box.boxType = .separator; return box }
 
     // MARK: Settings
@@ -615,18 +613,17 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let item = sidebarRows[row]
         if item.header {
-            let field = NSTextField(labelWithString: item.title); field.font = .systemFont(ofSize: 11, weight: .semibold); field.textColor = .secondaryLabelColor
-            return field
+            return Theme.sectionLabel(item.title)
         }
         let cell = NSTableCellView()
         let image = NSImageView(image: NSImage(systemSymbolName: item.icon, accessibilityDescription: nil)!)
-        image.contentTintColor = item.url == nil ? .tertiaryLabelColor : .controlAccentColor
+        image.contentTintColor = item.url == nil ? Theme.muted : Theme.accent
         let text = NSTextField(labelWithString: item.title); text.lineBreakMode = .byTruncatingMiddle
-        text.textColor = item.url == nil ? .secondaryLabelColor : .labelColor
+        text.textColor = item.url == nil ? Theme.muted : Theme.text
         var views: [NSView] = [image, text]
         if let url = item.url, newlyAvailable.contains(url) {
             let dot = NSImageView(image: NSImage(systemSymbolName: "circle.fill", accessibilityDescription: "New card")!.withSymbolConfiguration(.init(pointSize: 7, weight: .regular))!)
-            dot.contentTintColor = .controlAccentColor; views.append(dot)
+            dot.contentTintColor = Theme.accent; views.append(dot)
         }
         if let url = item.url, url == source, state == .importing || state == .scanning {
             let spinner = NSProgressIndicator(); spinner.style = .spinning; spinner.controlSize = .small; spinner.startAnimation(nil); views.append(spinner)
@@ -683,7 +680,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
 
     func startScan(reuseCachedHashes: Bool = true) {
         guard let source, state != .importing else { return }
-        guard let helper else { showError(ImportError("The app's built-in metadata reader is missing. Reinstall Andermic Photo Importer.")); return }
+        guard let helper else { showError("Metadata reader missing", ImportError("The app's built-in metadata reader is missing. Reinstall Corvus.")); return }
         scanToken?.cancel()
         scanGeneration += 1
         let generation = scanGeneration, token = Cancellation()
@@ -774,7 +771,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         refresh(); sidebar.reloadData(); selectSidebarRow(); onStateChange?()
         if token.isCancelled { status("Scan stopped."); return }
         status(error.localizedDescription)
-        showError(error)
+        showError("Scan did not finish", error)
     }
 
     // MARK: Grid
@@ -945,6 +942,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         for control in [datePopup, typePopup, showImported, sizeSlider] as [NSControl] { control.isEnabled = filtersEnabled || control === sizeSlider }
 
         titleLabel.stringValue = source?.lastPathComponent ?? "Import Photos"
+        window?.title = source.map { "\($0.lastPathComponent) — Corvus" } ?? "Corvus"
         if let plan {
             let imported = plan.groups.filter { $0.status == .imported }.count
             let newGroups = plan.newGroups.count
@@ -988,9 +986,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     func updatePreview() {
         let root = URL(fileURLWithPath: settings.destination)
         if let organizeError {
-            previewLabel.stringValue = organizeError; previewLabel.textColor = .systemRed; return
+            previewLabel.stringValue = organizeError; previewLabel.textColor = Theme.bad; return
         }
-        previewLabel.textColor = .secondaryLabelColor
+        previewLabel.textColor = Theme.muted
         let base = "\(root.lastPathComponent)/"
         guard let plan else {
             let example = (try? Importer.folder(template: settings.folderTemplate, event: event.isEmpty ? "Event Name" : event, date: CaptureDay(year: 2026, month: 10, day: 4))) ?? ""
@@ -1075,7 +1073,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     func startImport(_ groups: Set<Int>) {
         guard state == .idle, let plan, planIsCurrent, !groups.isEmpty else { return }
         guard plan.missingDates(in: groups) == 0 else {
-            showError(ImportError("Some selected photos have no capture date. Choose a fallback date in Import Options, or deselect them.")); return
+            showError("Photos need a capture date", ImportError("Some selected photos have no capture date. Choose a fallback date in Import Options, or deselect them.")); return
         }
         window?.makeFirstResponder(nil)
         let volume = ejectableVolume()
@@ -1118,7 +1116,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
             if snapshot.editorAvailable {
                 let configuration = NSWorkspace.OpenConfiguration(); configuration.activates = true
                 NSWorkspace.shared.open(result.folders, withApplicationAt: app, configuration: configuration) { _, error in
-                    if let error { DispatchQueue.main.async { self.showError(ImportError("Import succeeded, but \(snapshot.editorName) could not open the folders: \(error.localizedDescription)")) } }
+                    if let error { DispatchQueue.main.async { self.showError("Couldn’t open the folders in \(snapshot.editorName)", ImportError("Import succeeded, but \(snapshot.editorName) could not open the folders: \(error.localizedDescription)")) } }
                 }
             } else { detail += "\n\n\(snapshot.editorName) was not found, so folders were not opened." }
         }
@@ -1206,8 +1204,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         }
     }
 
-    func showError(_ error: Error) {
-        let alert = NSAlert(); alert.alertStyle = .warning; alert.messageText = "Andermic Photo Importer"; alert.informativeText = error.localizedDescription
+    /// A warning sheet titled by what failed.
+    func showError(_ title: String, _ error: Error) {
+        let alert = NSAlert(); alert.alertStyle = .warning; alert.messageText = title; alert.informativeText = error.localizedDescription
         present(alert)
     }
 
