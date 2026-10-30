@@ -29,7 +29,7 @@ open "dist/Andermic Photo Importer.app"
 
 The first build downloads pinned, checksum-verified Perl and ExifTool sources and compiles the bundled metadata reader (about two minutes on the development Mac). Later builds reuse it. The app builds for your Mac’s architecture. For a permanent installation, quit the app and drag `dist/Andermic Photo Importer.app` into Applications, then open that copy.
 
-To update, quit the app, run `git pull --ff-only` and `./build.sh`, and replace your installed copy. Your destination, folder layout, presets, and reports stay in Application Support.
+To update, quit the app, run `git pull --ff-only` and `./build.sh`, and replace the copy you actually launch. Check both `/Applications` and `~/Applications` if more than one copy exists; an older copy can otherwise keep opening from a Dock shortcut or Login Item. Closing the window leaves the app running in the menu bar, so choose Quit before replacement. Your destination, folder layout, presets, and reports stay in Application Support.
 
 ## Use it
 
