@@ -60,7 +60,8 @@ struct Settings: Codable, Equatable {
         UserDefaults.standard.string(forKey: "CorvusSettingsDirectory").map { URL(fileURLWithPath: $0, isDirectory: true) }
     }
     static var directory: URL {
-        overrideDirectory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        overrideDirectory
+            ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Corvus", isDirectory: true)
     }
     /// Earlier names' directories, newest first. The first readable one is adopted once; none is modified or deleted.
@@ -77,16 +78,17 @@ struct Settings: Codable, Equatable {
         let url = directory.appendingPathComponent("settings.json")
         var value: Settings
         if let data = try? Data(contentsOf: url) {
-            if let decoded = try? JSONDecoder().decode(Settings.self, from: data) { value = decoded }
-            else {
+            if let decoded = try? JSONDecoder().decode(Settings.self, from: data) {
+                value = decoded
+            } else {
                 // Keep an unreadable file for inspection rather than silently replacing it.
                 let backup = directory.appendingPathComponent("settings-unreadable-\(Int(Date().timeIntervalSince1970)).json")
                 try? FileManager.default.copyItem(at: url, to: backup)
                 value = Settings()
             }
         } else if let legacy = legacyDirectories.lazy.compactMap({ legacy in
-                      (try? Data(contentsOf: legacy.appendingPathComponent("settings.json"))).flatMap { try? JSONDecoder().decode(Settings.self, from: $0) }
-                  }).first {
+            (try? Data(contentsOf: legacy.appendingPathComponent("settings.json"))).flatMap { try? JSONDecoder().decode(Settings.self, from: $0) }
+        }).first {
             value = legacy
             value.schemaVersion = schema
             try? value.save(to: directory)

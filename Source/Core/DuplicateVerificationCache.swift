@@ -1,6 +1,6 @@
-import Foundation
 import CryptoKit
 import Darwin
+import Foundation
 
 /// Rebuildable hints for previews only. Import never uses this cache to skip a read.
 /// Expiry is measured from a complete hash, not from the last cache hit.
@@ -32,8 +32,10 @@ final class DuplicateVerificationCache {
     private var entries: [String: Entry] = [:]
     var count: Int { entries.count }
 
-    init(directory: URL, clock: @escaping () -> Date = Date.init,
-         entryLimit: Int = maximumEntries, byteLimit: Int = maximumBytes) {
+    init(
+        directory: URL, clock: @escaping () -> Date = Date.init,
+        entryLimit: Int = maximumEntries, byteLimit: Int = maximumBytes
+    ) {
         self.directory = directory.standardizedFileURL
         file = directory.appendingPathComponent("verified-hashes-v1.json")
         self.clock = clock
@@ -73,7 +75,8 @@ final class DuplicateVerificationCache {
         let id = key(url, namespace)
         guard let entry = entries[id] else { return nil }
         guard fresh(entry), info.st_mode & S_IFMT == S_IFREG,
-              entry.identity == Identity(info), entry.sample == sample else {
+            entry.identity == Identity(info), entry.sample == sample
+        else {
             entries.removeValue(forKey: id); return nil
         }
         // Deliberately do not update verifiedAt on a hit.
@@ -82,10 +85,12 @@ final class DuplicateVerificationCache {
     /// Call only after hashing complete contents and checking identity stability.
     func record(_ url: URL, namespace: String, info: stat, sample: String, hash: String) {
         guard info.st_mode & S_IFMT == S_IFREG, info.st_size >= 0,
-              Self.validHash(sample), Self.validHash(hash) else { return }
+            Self.validHash(sample), Self.validHash(hash)
+        else { return }
         let id = key(url, namespace)
-        entries[id] = Entry(key: id, identity: Identity(info), sample: sample, hash: hash,
-                            verifiedAt: clock().timeIntervalSince1970)
+        entries[id] = Entry(
+            key: id, identity: Identity(info), sample: sample, hash: hash,
+            verifiedAt: clock().timeIntervalSince1970)
         if entries.count > entryLimit { prune() }
     }
     private func newest() -> [Entry] {
@@ -106,16 +111,20 @@ final class DuplicateVerificationCache {
         guard fd >= 0 else { return }; defer { close(fd) }
         var before = stat()
         guard fstat(fd, &before) == 0, before.st_mode & S_IFMT == S_IFREG,
-              before.st_uid == geteuid(), before.st_mode & 0o077 == 0,
-              before.st_size >= 0, before.st_size <= byteLimit else { return }
+            before.st_uid == geteuid(), before.st_mode & 0o077 == 0,
+            before.st_size >= 0, before.st_size <= byteLimit
+        else { return }
         let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: false)
         guard let data = try? handle.read(upToCount: byteLimit + 1), data.count <= byteLimit,
-              let document = try? JSONDecoder().decode(Document.self, from: data), document.version == 1,
-              document.entries.count <= entryLimit else { return }
+            let document = try? JSONDecoder().decode(Document.self, from: data), document.version == 1,
+            document.entries.count <= entryLimit
+        else { return }
         var after = stat()
         guard fstat(fd, &after) == 0, Importer.stable(before, after) else { return }
-        for entry in document.entries where fresh(entry) && Self.validHash(entry.key)
-            && Self.validHash(entry.sample) && Self.validHash(entry.hash) && entry.identity.size >= 0 {
+        for entry in document.entries
+        where fresh(entry) && Self.validHash(entry.key)
+            && Self.validHash(entry.sample) && Self.validHash(entry.hash) && entry.identity.size >= 0
+        {
             entries[entry.key] = entry
         }
     }
@@ -143,6 +152,8 @@ final class DuplicateVerificationCache {
             try handle.write(contentsOf: data)
             try Importer.assertDirectory(directory)
             guard rename(temporary.path, file.path) == 0 else { return }
-        } catch { /* Losing a cache entry costs reads, never originals. */ }
+        } catch {
+            // Losing a cache entry costs reads, never originals.
+        }
     }
 }

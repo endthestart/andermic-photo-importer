@@ -31,7 +31,9 @@ enum CameraCatalog {
                     inferredParents[child] = id
                     try walk(child, ancestors: ancestors.union([id]))
                 }
-            } else if listed.insert(id).inserted { files.append(id) }
+            } else if listed.insert(id).inserted {
+                files.append(id)
+            }
         }
         for id in hierarchy { try walk(id, ancestors: []) }
         // Merge rather than substitute: the tree may expose sidecars omitted by
@@ -60,8 +62,10 @@ enum CameraCatalog {
                 originalPath.insert(folder.name ?? folderIDs[key]!, at: 0)
                 parent = folder.parent ?? inferredParents[key]
             }
-            result.append(CameraObject(id: id, folders: path, name: name, size: file.size,
-                originalPath: (originalPath + [name]).joined(separator: "/") + "?object=\(file.handle)"))
+            result.append(
+                CameraObject(
+                    id: id, folders: path, name: name, size: file.size,
+                    originalPath: (originalPath + [name]).joined(separator: "/") + "?object=\(file.handle)"))
         }
         return result
     }

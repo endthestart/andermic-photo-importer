@@ -6,7 +6,7 @@ import CoreImage
 import Foundation
 import ImageIO
 
-let S = 1024.0, pad = 100.0, tileRadius = 185.0
+let side = 1024.0, pad = 100.0, tileRadius = 185.0
 let accent = (143.0, 180.0, 255.0)
 let dotSeed: UInt64 = 11, treeSeed: UInt64 = 5
 /// J2000 right ascension and declination in degrees, and V magnitude.
@@ -36,9 +36,10 @@ func color(_ r: Double, _ g: Double, _ b: Double, _ alpha: Double = 255) -> CGCo
 }
 /// A transparent full-canvas layer with y pointing down, as the template's coordinates do.
 func layer() -> CGContext {
-    let context = CGContext(data: nil, width: Int(S), height: Int(S), bitsPerComponent: 8, bytesPerRow: 0, space: space,
-                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-    context.translateBy(x: 0, y: S); context.scaleBy(x: 1, y: -1)
+    let context = CGContext(
+        data: nil, width: Int(side), height: Int(side), bitsPerComponent: 8, bytesPerRow: 0, space: space,
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    context.translateBy(x: 0, y: side); context.scaleBy(x: 1, y: -1)
     return context
 }
 let ciContext = CIContext(options: [.workingColorSpace: space])
@@ -48,8 +49,8 @@ func blurred(_ context: CGContext, _ radius: Double) -> CGImage {
     return ciContext.createCGImage(blur, from: image.extent)!
 }
 func composite(_ image: CGImage, onto context: CGContext) {
-    context.saveGState(); context.translateBy(x: 0, y: S); context.scaleBy(x: 1, y: -1)
-    context.draw(image, in: CGRect(x: 0, y: 0, width: S, height: S)); context.restoreGState()
+    context.saveGState(); context.translateBy(x: 0, y: side); context.scaleBy(x: 1, y: -1)
+    context.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side)); context.restoreGState()
 }
 func circle(_ context: CGContext, _ x: Double, _ y: Double, _ r: Double) {
     context.fillEllipse(in: CGRect(x: x - r, y: y - r, width: 2 * r, height: 2 * r))
@@ -57,10 +58,10 @@ func circle(_ context: CGContext, _ x: Double, _ y: Double, _ r: Double) {
 
 let canvas = layer()
 // Gradient over the full canvas, one row at a time.
-for row in 0..<Int(S) {
-    let t = Double(row) / S
+for row in 0..<Int(side) {
+    let t = Double(row) / side
     canvas.setFillColor(color((10 + 14 * t).rounded(.down), (16 + 22 * t).rounded(.down), (36 + 42 * t).rounded(.down)))
-    canvas.fill(CGRect(x: 0, y: Double(row), width: S, height: 1))
+    canvas.fill(CGRect(x: 0, y: Double(row), width: side, height: 1))
 }
 
 // Milky Way band: the union of the ellipses at alpha 10 (overlaps do not accumulate).
@@ -68,7 +69,7 @@ let band = layer()
 band.setFillColor(color(150, 165, 230))
 for k in 0..<60 {
     let t = Double(k) / 60
-    let x = pad + 80 + t * (S - 2 * pad - 160), y = S * 0.62 - t * S * 0.38
+    let x = pad + 80 + t * (side - 2 * pad - 160), y = side * 0.62 - t * side * 0.38
     band.fillEllipse(in: CGRect(x: x - 120, y: y - 60, width: 240, height: 120))
 }
 canvas.saveGState(); canvas.setAlpha(10 / 255)
@@ -78,7 +79,7 @@ canvas.restoreGState()
 // Background stars in the top 72% of the tile.
 var dots = Random(state: dotSeed)
 for _ in 0..<140 {
-    let x = dots.uniform(pad, S - pad), y = dots.uniform(pad, S * 0.72)
+    let x = dots.uniform(pad, side - pad), y = dots.uniform(pad, side * 0.72)
     let r = [1.2, 1.6, 2.2, 2.8][dots.integer(0, 3)], alpha = Double(dots.integer(120, 255))
     canvas.setFillColor(color(220, 228, 255, alpha)); circle(canvas, x, y, r)
 }
@@ -88,8 +89,8 @@ let ras = stars.values.map(\.ra), decs = stars.values.map(\.dec)
 let ra0 = (ras.min()! + ras.max()!) / 2, dec0 = (decs.min()! + decs.max()!) / 2, squeeze = cos(dec0 * .pi / 180)
 let projected = stars.mapValues { (x: -($0.ra - ra0) * squeeze, y: -($0.dec - dec0)) }
 let xs = projected.values.map(\.x), ys = projected.values.map(\.y)
-let scale = 0.34 * S / max(xs.max()! - xs.min()!, ys.max()! - ys.min()!)
-let position = projected.mapValues { (x: 0.5 * S + $0.x * scale, y: 0.36 * S + $0.y * scale) }
+let scale = 0.34 * side / max(xs.max()! - xs.min()!, ys.max()! - ys.min()!)
+let position = projected.mapValues { (x: 0.5 * side + $0.x * scale, y: 0.36 * side + $0.y * scale) }
 
 let lines = layer()
 lines.setStrokeColor(color(accent.0, accent.1, accent.2, 150)); lines.setLineWidth(5); lines.setLineCap(.round)
@@ -101,13 +102,13 @@ composite(lines.makeImage()!, onto: canvas)
 
 for name in stars.keys.sorted() {
     let (x, y) = position[name]!
-    let R = min(64, max(28, 64 - 16 * (stars[name]!.v - 2.6)))
+    let outer = min(64, max(28, 64 - 16 * (stars[name]!.v - 2.6)))
     let halo = layer()
-    halo.setFillColor(color(accent.0, accent.1, accent.2, 120)); circle(halo, x, y, R)
-    composite(blurred(halo, 0.5 * R), onto: canvas)
+    halo.setFillColor(color(accent.0, accent.1, accent.2, 120)); circle(halo, x, y, outer)
+    composite(blurred(halo, 0.5 * outer), onto: canvas)
     canvas.setFillColor(color(232, 240, 255))
     for k in 0..<8 {
-        let radius = k % 2 == 0 ? R : 0.22 * R, angle = Double(k) * .pi / 4 - .pi / 2
+        let radius = k % 2 == 0 ? outer : 0.22 * outer, angle = Double(k) * .pi / 4 - .pi / 2
         let point = CGPoint(x: x + radius * cos(angle), y: y + radius * sin(angle))
         if k == 0 { canvas.move(to: point) } else { canvas.addLine(to: point) }
     }
@@ -116,21 +117,21 @@ for name in stars.keys.sorted() {
 
 // Treeline over solid ground; drawn last so it covers anything low.
 var trees = Random(state: treeSeed)
-let base = S * 0.78
+let base = side * 0.78
 canvas.setFillColor(color(6, 9, 14))
-canvas.move(to: CGPoint(x: pad, y: S - pad)); canvas.addLine(to: CGPoint(x: pad, y: base))
+canvas.move(to: CGPoint(x: pad, y: side - pad)); canvas.addLine(to: CGPoint(x: pad, y: base))
 var x = pad
-while x < S - pad {
+while x < side - pad {
     let w = trees.uniform(26, 52), h = trees.uniform(60, 190)
     canvas.addLine(to: CGPoint(x: x, y: base)); canvas.addLine(to: CGPoint(x: x + w / 2, y: base - h)); canvas.addLine(to: CGPoint(x: x + w, y: base))
     x += w * 0.8
 }
-canvas.addLine(to: CGPoint(x: S - pad, y: base)); canvas.addLine(to: CGPoint(x: S - pad, y: S - pad)); canvas.closePath(); canvas.fillPath()
-canvas.fill(CGRect(x: pad, y: base, width: S - 2 * pad, height: S - pad - base))
+canvas.addLine(to: CGPoint(x: side - pad, y: base)); canvas.addLine(to: CGPoint(x: side - pad, y: side - pad)); canvas.closePath(); canvas.fillPath()
+canvas.fill(CGRect(x: pad, y: base, width: side - 2 * pad, height: side - pad - base))
 
 // Tile mask.
 let output = layer()
-output.addPath(CGPath(roundedRect: CGRect(x: pad, y: pad, width: S - 2 * pad, height: S - 2 * pad), cornerWidth: tileRadius, cornerHeight: tileRadius, transform: nil))
+output.addPath(CGPath(roundedRect: CGRect(x: pad, y: pad, width: side - 2 * pad, height: side - 2 * pad), cornerWidth: tileRadius, cornerHeight: tileRadius, transform: nil))
 output.clip()
 composite(canvas.makeImage()!, onto: output)
 

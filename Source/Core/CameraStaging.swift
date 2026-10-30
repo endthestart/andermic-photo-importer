@@ -1,6 +1,6 @@
-import Foundation
 import CryptoKit
 import Darwin
+import Foundation
 
 /// A read-only camera object. Folder identifiers (not names) keep card slots and reused
 /// filenames separate. The transport must return the original bytes, never a rendition.
@@ -31,10 +31,12 @@ enum CameraStaging {
 
     /// Runs off the main thread. `read` is injectable so failure/short-read/cancellation
     /// safety can be tested without any physical camera or personal photos.
-    static func prepare(_ objects: [CameraObject], camera: String, cancellation: Cancellation,
-                        temporaryRoot: URL? = nil,
-                        read: (CameraObject, Int64, Int) throws -> Data,
-                        progress: (ImportProgress) -> Void) throws -> CameraSnapshot {
+    static func prepare(
+        _ objects: [CameraObject], camera: String, cancellation: Cancellation,
+        temporaryRoot: URL? = nil,
+        read: (CameraObject, Int64, Int) throws -> Data,
+        progress: (ImportProgress) -> Void
+    ) throws -> CameraSnapshot {
         // Foundation normalizes /private/var back to the /var symlink even after
         // resolving it. Use disposable user-cache storage so the importer's strict
         // source-symlink refusal remains intact, including on macOS temporary paths.
@@ -52,44 +54,45 @@ enum CameraStaging {
         for file in files {
             try component(file.name); try file.folders.forEach(component)
             guard file.size >= 0, ids.insert(file.id).inserted,
-                  paths.insert((file.folders + [file.name]).joined(separator: "/").lowercased()).inserted else {
+                paths.insert((file.folders + [file.name]).joined(separator: "/").lowercased()).inserted
+            else {
                 throw ImportError("The camera returned an ambiguous or invalid file catalog.")
             }
         }
         var lastProgress = Date.distantPast
         for (index, file) in files.enumerated() {
-          try autoreleasepool {
-            try cancellation.check()
-            let target = (file.folders + [file.name]).reduce(directory) { $0.appendingPathComponent($1) }
-            try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-            let fd = open(target.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
-            guard fd >= 0 else { throw ImportError("Cannot create the temporary camera copy. Check free disk space.") }
-            let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
-            var offset: Int64 = 0, hash = SHA256()
-            do {
-                while offset < file.size {
-                  try autoreleasepool {
-                    try cancellation.check()
-                    let count = Int(min(4 * 1024 * 1024, file.size - offset))
-                    let now = Date()
-                    if now.timeIntervalSince(lastProgress) >= 0.1 {
-                        lastProgress = now
-                        progress(ImportProgress("Reading camera original \(index + 1) of \(files.count): \(file.name). Temporary copies are needed before preview.", fraction: nil))
+            try autoreleasepool {
+                try cancellation.check()
+                let target = (file.folders + [file.name]).reduce(directory) { $0.appendingPathComponent($1) }
+                try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+                let fd = open(target.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
+                guard fd >= 0 else { throw ImportError("Cannot create the temporary camera copy. Check free disk space.") }
+                let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+                var offset: Int64 = 0, hash = SHA256()
+                do {
+                    while offset < file.size {
+                        try autoreleasepool {
+                            try cancellation.check()
+                            let count = Int(min(4 * 1024 * 1024, file.size - offset))
+                            let now = Date()
+                            if now.timeIntervalSince(lastProgress) >= 0.1 {
+                                lastProgress = now
+                                progress(ImportProgress("Reading camera original \(index + 1) of \(files.count): \(file.name). Temporary copies are needed before preview.", fraction: nil))
+                            }
+                            let data = try read(file, offset, count)
+                            try cancellation.check()
+                            guard !data.isEmpty, data.count <= count else { throw ImportError("The camera returned incomplete or invalid original data. Scan again.") }
+                            try handle.write(contentsOf: data); hash.update(data: data); offset += Int64(data.count)
+                        }
                     }
-                    let data = try read(file, offset, count)
-                    try cancellation.check()
-                    guard !data.isEmpty, data.count <= count else { throw ImportError("The camera returned incomplete or invalid original data. Scan again.") }
-                    try handle.write(contentsOf: data); hash.update(data: data); offset += Int64(data.count)
-                  }
-                }
-                try handle.synchronize(); try handle.close()
-            } catch { try? handle.close(); throw error }
-            let expected = hash.finalize().map { String(format: "%02x", $0) }.joined()
-            let (actual, size) = try Importer.digest(target, cancellation: cancellation)
-            guard size == UInt64(file.size), actual == expected else { throw ImportError("The temporary camera copy did not verify. No destination files were copied.") }
-            hashes[target.path] = expected
-            origins[target.path] = camera + "/" + (file.originalPath ?? (file.folders + [file.name]).joined(separator: "/"))
-          }
+                    try handle.synchronize(); try handle.close()
+                } catch { try? handle.close(); throw error }
+                let expected = hash.finalize().map { String(format: "%02x", $0) }.joined()
+                let (actual, size) = try Importer.digest(target, cancellation: cancellation)
+                guard size == UInt64(file.size), actual == expected else { throw ImportError("The temporary camera copy did not verify. No destination files were copied.") }
+                hashes[target.path] = expected
+                origins[target.path] = camera + "/" + (file.originalPath ?? (file.folders + [file.name]).joined(separator: "/"))
+            }
         }
         try cancellation.check()
         keep = true

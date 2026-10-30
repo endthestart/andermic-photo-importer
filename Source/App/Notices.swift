@@ -24,15 +24,17 @@ final class NoticesWindow: NSWindowController {
             result.append(NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: color]))
         }
         add("Third-Party Notices\n\n", Theme.font("heading"))
-        add("Corvus includes a built-in metadata reader so capture dates can be read without installing anything else. "
-            + "These components are distributed unmodified from the pinned upstream sources below, under their own licenses.\n\n", .systemFont(ofSize: 13))
+        add(
+            "Corvus includes a built-in metadata reader so capture dates can be read without installing anything else. "
+                + "These components are distributed unmodified from the pinned upstream sources below, under their own licenses.\n\n", .systemFont(ofSize: 13))
         guard let helper, let manifest = helper.readManifest() else {
             add("The built-in metadata reader is missing from this copy of the app.\n", .systemFont(ofSize: 13), Theme.bad)
             return result
         }
         for component in manifest.components {
             add("\(component.name) \(component.version)\n", Theme.font("panel"))
-            add("License: \(component.license)\nSource: \(component.source)\nSHA-256: \(component.sha256)\nChanges: \(component.modifications)\n\n",
+            add(
+                "License: \(component.license)\nSource: \(component.source)\nSHA-256: \(component.sha256)\nChanges: \(component.modifications)\n\n",
                 .systemFont(ofSize: 12), Theme.muted)
         }
         add("Built for \(manifest.architecture), macOS \(manifest.minimumMacOS) or later. ExifTool © Phil Harvey. Perl © Larry Wall and others.\n\n", .systemFont(ofSize: 12), Theme.muted)

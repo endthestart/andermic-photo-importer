@@ -32,7 +32,8 @@ struct FolderStructure {
 }
 
 final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollectionViewDataSource, NSCollectionViewDelegateFlowLayout,
-                                  NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate, NSToolbarDelegate {
+    NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate, NSToolbarDelegate
+{
     var settings: Settings
     let helper: MetadataHelper?
     let thumbnails = ThumbnailLoader()
@@ -65,7 +66,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
 
     // Display
     var sections: [(title: String, detail: String, entries: [GridEntry])] = []
-    var dateFilter: CaptureDay?? = nil   // nil = all; .some(nil) = no capture date
+    var dateFilter: CaptureDay?? = nil  // nil = all; .some(nil) = no capture date
     var typeFilter = TypeFilter.all
     var tileWidth: CGFloat = 170
 
@@ -112,8 +113,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
 
     init(settings: Settings, helper: MetadataHelper?) {
         self.settings = settings; self.helper = helper
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1320, height: 820),
-                              styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1320, height: 820),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         window.title = "Corvus"
         window.minSize = NSSize(width: 1040, height: 620)
         window.isReleasedWhenClosed = false
@@ -313,7 +315,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         fallbackPicker.target = self; fallbackPicker.action = #selector(organizationChanged)
         fallbackCheck.target = self; fallbackCheck.action = #selector(organizationChanged)
         fallbackBox.orientation = .vertical; fallbackBox.alignment = .leading; fallbackBox.spacing = 6
-        for view in [section("Missing capture dates"), small("Some photos have no capture date. Nothing is guessed: choose a date for them, or leave them unselected."), fallbackCheck, fallbackPicker] {
+        for view in [section("Missing capture dates"), small("Some photos have no capture date. Nothing is guessed: choose a date for them, or leave them unselected."), fallbackCheck, fallbackPicker]
+        {
             fallbackBox.addArrangedSubview(view)
         }
         openEditor.target = self; openEditor.action = #selector(completionChanged)
@@ -334,14 +337,16 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         let reportsButton = NSButton(title: "Show Import Reports", target: self, action: #selector(showReports))
         let noticesButton = NSButton(title: "Third-Party Notices…", target: NSApp.delegate, action: #selector(AppDelegate.showNotices))
         advancedBox.orientation = .vertical; advancedBox.alignment = .leading; advancedBox.spacing = 8
-        for view in [label("Startup"), backgroundLaunch, loginItems,
-                     small("To start at login, add this app under Open at Login in macOS Login Items. The menu-bar option keeps its window closed on launch."),
-                     label("When a card is inserted"), cardBehaviorPopup,
-                     small("Scanning only previews. Copying always waits for an import button, and an import in progress is never interrupted."),
-                     label("Editor handoff"), editorPath, chooseEditor,
-                     label("Folder template tokens"),
-                     small("{YYYY} year · {YY} short year · {MM} month · {DD} day · {event} event name. Use / between folder levels. Each photo uses its own camera-recorded capture day."),
-                     reportsButton, noticesButton] {
+        for view in [
+            label("Startup"), backgroundLaunch, loginItems,
+            small("To start at login, add this app under Open at Login in macOS Login Items. The menu-bar option keeps its window closed on launch."),
+            label("When a card is inserted"), cardBehaviorPopup,
+            small("Scanning only previews. Copying always waits for an import button, and an import in progress is never interrupted."),
+            label("Editor handoff"), editorPath, chooseEditor,
+            label("Folder template tokens"),
+            small("{YYYY} year · {YY} short year · {MM} month · {DD} day · {event} event name. Use / between folder levels. Each photo uses its own camera-recorded capture day."),
+            reportsButton, noticesButton,
+        ] {
             advancedBox.addArrangedSubview(view)
         }
         advancedBox.isHidden = true
@@ -413,8 +418,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
 
     func rebuildPresetMenu() {
         presetPopup.removeAllItems()
-        let current = settings.presets.firstIndex { $0.destination == settings.destination && $0.folderTemplate == settings.folderTemplate
-            && $0.openInEditor == settings.openInDxO && $0.eject == settings.eject }
+        let current = settings.presets.firstIndex {
+            $0.destination == settings.destination && $0.folderTemplate == settings.folderTemplate
+                && $0.openInEditor == settings.openInDxO && $0.eject == settings.eject
+        }
         presetPopup.addItem(withTitle: current == nil ? "Current Settings" : settings.presets[current!].name)
         presetPopup.menu?.addItem(.separator())
         for (index, preset) in settings.presets.enumerated() {
@@ -435,9 +442,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     @objc func presetChosen() {
         let tag = presetPopup.selectedItem?.tag ?? 0
         if presetPopup.indexOfSelectedItem == 0 { return }
-        if tag == -2 { savePreset() }
-        else if tag <= -3 { settings.presets.remove(at: -3 - tag); persist() }
-        else if settings.presets.indices.contains(tag) {
+        if tag == -2 {
+            savePreset()
+        } else if tag <= -3 {
+            settings.presets.remove(at: -3 - tag); persist()
+        } else if settings.presets.indices.contains(tag) {
             let preset = settings.presets[tag]
             let destinationChanged = preset.destination != settings.destination
             settings.destination = preset.destination; settings.folderTemplate = preset.folderTemplate
@@ -459,8 +468,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         let title = name.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty else { return }
         settings.presets.removeAll { $0.name == title }
-        settings.presets.append(ImportPreset(name: title, destination: settings.destination, folderTemplate: settings.folderTemplate,
-                                             openInEditor: settings.openInDxO, eject: settings.eject))
+        settings.presets.append(
+            ImportPreset(
+                name: title, destination: settings.destination, folderTemplate: settings.folderTemplate,
+                openInEditor: settings.openInDxO, eject: settings.eject))
         settings.presets.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         persist()
     }
@@ -536,8 +547,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
                 plan = updated
             } catch { organizeError = error.localizedDescription }
         } else {
-            do { _ = try Importer.folder(template: settings.folderTemplate, event: event, date: CaptureDay(year: 2026, month: 10, day: 4)) }
-            catch { organizeError = error.localizedDescription }
+            do { _ = try Importer.folder(template: settings.folderTemplate, event: event, date: CaptureDay(year: 2026, month: 10, day: 4)) } catch { organizeError = error.localizedDescription }
         }
         refresh()
     }
@@ -583,7 +593,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
                 status("Card “\(card.lastPathComponent)” is available. Select it to scan.")
             }
         } else if source == nil, state == .idle, let card = list.first, settings.cardInsertion != .indicate,
-                  Date().timeIntervalSince(launched) < 10 {
+            Date().timeIntervalSince(launched) < 10
+        {
             // Startup can scan an existing card while the window stays closed.
             // Later insertions follow the separate card setting.
             // Later list changes (such as ejecting the current card) never switch to another card.
@@ -634,14 +645,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         }
         let stack = NSStackView(views: views); stack.spacing = 6; stack.translatesAutoresizingMaskIntoConstraints = false
         cell.addSubview(stack); cell.textField = text; cell.imageView = image
-        NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 2), stack.trailingAnchor.constraint(lessThanOrEqualTo: cell.trailingAnchor, constant: -4),
-                                     stack.centerYAnchor.constraint(equalTo: cell.centerYAnchor)])
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 2), stack.trailingAnchor.constraint(lessThanOrEqualTo: cell.trailingAnchor, constant: -4),
+            stack.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+        ])
         cell.setAccessibilityLabel(item.title + (item.url.map { newlyAvailable.contains($0) ? ", new card" : "" } ?? ""))
         return cell
     }
     func selectSidebarRow() {
-        if let index = sidebarRows.firstIndex(where: { $0.url != nil && $0.url == source }) { sidebar.selectRowIndexes([index], byExtendingSelection: false) }
-        else { sidebar.deselectAll(nil) }
+        if let index = sidebarRows.firstIndex(where: { $0.url != nil && $0.url == source }) { sidebar.selectRowIndexes([index], byExtendingSelection: false) } else { sidebar.deselectAll(nil) }
     }
     @objc func sidebarClicked() {
         let row = sidebar.clickedRow >= 0 ? sidebar.clickedRow : sidebar.selectedRow
@@ -705,37 +717,43 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         let cacheDirectory = verificationCacheDirectory
         refresh(); onStateChange?()
         let scan: (CameraSnapshot?) -> Void = { [weak self] snapshot in
-          guard let self, generation == self.scanGeneration, !token.isCancelled else { return }
-          self.cameraSnapshot = snapshot
-          let input = snapshot?.directory ?? source
-          DispatchQueue.global(qos: .userInitiated).async { [weak self, snapshot] in
-            do {
-                var value = try Importer.plan(source: input, settings: scanSettings, event: scanSettings.folderTemplate.contains("{event}") ? event : "", fallback: fallback,
-                                              helper: helper, cancellation: token,
-                                              verificationCache: DuplicateVerificationCache(directory: cacheDirectory), reuseCachedHashes: reuseCachedHashes,
-                                              progress: { update in DispatchQueue.main.async { self?.scanProgress(update, generation) } },
-                                              discovered: { groups in DispatchQueue.main.async { self?.discovered(groups, generation) } })
-                if let snapshot {
-                    value.sourceDescription = source.absoluteString
-                    value.sourceFileDescriptions = snapshot.origins
-                    for index in value.files.indices { value.files[index].digest = snapshot.hashes[value.files[index].source.path] }
+            guard let self, generation == self.scanGeneration, !token.isCancelled else { return }
+            self.cameraSnapshot = snapshot
+            let input = snapshot?.directory ?? source
+            DispatchQueue.global(qos: .userInitiated).async { [weak self, snapshot] in
+                do {
+                    var value = try Importer.plan(
+                        source: input, settings: scanSettings, event: scanSettings.folderTemplate.contains("{event}") ? event : "", fallback: fallback,
+                        helper: helper, cancellation: token,
+                        verificationCache: DuplicateVerificationCache(directory: cacheDirectory), reuseCachedHashes: reuseCachedHashes,
+                        progress: { update in DispatchQueue.main.async { self?.scanProgress(update, generation) } },
+                        discovered: { groups in DispatchQueue.main.async { self?.discovered(groups, generation) } })
+                    if let snapshot {
+                        value.sourceDescription = source.absoluteString
+                        value.sourceFileDescriptions = snapshot.origins
+                        for index in value.files.indices { value.files[index].digest = snapshot.hashes[value.files[index].source.path] }
+                    }
+                    DispatchQueue.main.async { self?.scanFinished(value, generation) }
+                } catch {
+                    DispatchQueue.main.async { self?.scanFailed(error, generation, token) }
                 }
-                DispatchQueue.main.async { self?.scanFinished(value, generation) }
-            } catch {
-                DispatchQueue.main.async { self?.scanFailed(error, generation, token) }
             }
-          }
         }
         if let camera = cameras.first(where: { $0.url == source }) {
-            camera.prepare(cancellation: token, progress: { [weak self] update in
-                DispatchQueue.main.async { self?.scanProgress(update, generation) }
-            }, completion: { [weak self] result in
-                switch result {
-                case .success(let snapshot): scan(snapshot)
-                case .failure(let error): self?.scanFailed(error, generation, token)
-                }
-            })
-        } else { scan(nil) }
+            camera.prepare(
+                cancellation: token,
+                progress: { [weak self] update in
+                    DispatchQueue.main.async { self?.scanProgress(update, generation) }
+                },
+                completion: { [weak self] result in
+                    switch result {
+                    case .success(let snapshot): scan(snapshot)
+                    case .failure(let error): self?.scanFailed(error, generation, token)
+                    }
+                })
+        } else {
+            scan(nil)
+        }
     }
 
     func scanProgress(_ update: ImportProgress, _ generation: Int) {
@@ -754,16 +772,17 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         plan = value; preliminary = nil
         state = .idle; progressBar.stopAnimation(nil)
         organizeError = nil
-        do { plan = try value.organized(template: settings.folderTemplate, event: event, fallback: fallback) }
-        catch { organizeError = error.localizedDescription }
+        do { plan = try value.organized(template: settings.folderTemplate, event: event, fallback: fallback) } catch { organizeError = error.localizedDescription }
         selection = plan?.importableNewGroups ?? []
         sidebar.reloadData(); selectSidebarRow()
         let elapsed = Date().timeIntervalSince(scanStarted)
         let reads = value.scanReads
-        status(String(format: "Scanned in %.1f s · %@ read to check %@ of photos.", elapsed,
-                      ByteCountFormatter.string(fromByteCount: Int64(reads.total), countStyle: .file),
-                      ByteCountFormatter.string(fromByteCount: Int64(value.files.reduce(0) { $0 + $1.size }), countStyle: .file))
-               + (value.cachedGroups > 0 ? " \(value.cachedGroups) cached matches; full contents are rechecked during import. File > Full Verification bypasses the cache." : ""))
+        status(
+            String(
+                format: "Scanned in %.1f s · %@ read to check %@ of photos.", elapsed,
+                ByteCountFormatter.string(fromByteCount: Int64(reads.total), countStyle: .file),
+                ByteCountFormatter.string(fromByteCount: Int64(value.files.reduce(0) { $0 + $1.size }), countStyle: .file))
+                + (value.cachedGroups > 0 ? " \(value.cachedGroups) cached matches; full contents are rechecked during import. File > Full Verification bypasses the cache." : ""))
         refresh()
         gridScroll.contentView.scroll(to: .zero)
         gridScroll.reflectScrolledClipView(gridScroll.contentView)
@@ -803,9 +822,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
                 let files = members.count == 1 ? "1 file" : "\(members.count) files"
                 let destination = group.folder.map { "\(plan.root.lastPathComponent)/\($0)/" }
                 let thumbnail = primaries.first { $0.role == .image }?.source ?? primaries[0].source
-                return GridEntry(id: group.id, name: group.name, thumbnail: thumbnail, kinds: kinds, fileCount: members.count,
-                                 detail: "\(date) · \(files)", status: group.status, missingDate: plan.missingDates(in: [group.id]) > 0, destination: destination,
-                                 dateOrigin: group.date == nil ? nil : group.dateOrigin, cachedVerification: members.contains(where: \.cachedVerification))
+                return GridEntry(
+                    id: group.id, name: group.name, thumbnail: thumbnail, kinds: kinds, fileCount: members.count,
+                    detail: "\(date) · \(files)", status: group.status, missingDate: plan.missingDates(in: [group.id]) > 0, destination: destination,
+                    dateOrigin: group.date == nil ? nil : group.dateOrigin, cachedVerification: members.contains(where: \.cachedVerification))
             }
             let fresh = visible.filter(\.isNew).map(entry)
             let other = visible.filter { !$0.isNew }.map(entry)
@@ -816,10 +836,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         }
         if let preliminary {
             let items = preliminary.enumerated().map { index, group in
-                GridEntry(id: index, name: group.primaries[0].deletingPathExtension().lastPathComponent,
-                          thumbnail: group.primaries.first { MediaTypes.role(of: $0) == .image } ?? group.primaries[0],
-                          kinds: group.primaries.map { $0.pathExtension.uppercased() }.joined(separator: " + ") + (group.sidecars.isEmpty ? "" : " · +\(group.sidecars.count)"),
-                          fileCount: group.members.count, detail: "Checking…", status: nil, missingDate: false, destination: nil)
+                GridEntry(
+                    id: index, name: group.primaries[0].deletingPathExtension().lastPathComponent,
+                    thumbnail: group.primaries.first { MediaTypes.role(of: $0) == .image } ?? group.primaries[0],
+                    kinds: group.primaries.map { $0.pathExtension.uppercased() }.joined(separator: " + ") + (group.sidecars.isEmpty ? "" : " · +\(group.sidecars.count)"),
+                    fileCount: group.members.count, detail: "Checking…", status: nil, missingDate: false, destination: nil)
             }
             return [("Scanning", "\(items.count) photos found", items)]
         }
@@ -840,8 +861,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         item.tile.configure(entry, checked: plan != nil && selection.contains(entry.id))
         item.tile.onToggle = { [weak self] flags in self?.toggle(entry.id, flags) }
         let key = ThumbnailLoader.key(entry.thumbnail)
-        if let image = thumbnails.cached(key) { item.tile.setImage(image, placeholder: false) }
-        else {
+        if let image = thumbnails.cached(key) {
+            item.tile.setImage(image, placeholder: false)
+        } else {
             item.tile.setImage(nil, placeholder: true)
             if !thumbnails.hasFailed(key) {
                 item.operation = thumbnails.load(entry.thumbnail, key: key) { [weak item] image in
@@ -910,7 +932,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     @objc func resizeTiles() { tileWidth = CGFloat(sizeSlider.doubleValue); collection.collectionViewLayout?.invalidateLayout() }
     func zoom(by delta: CGFloat) { sizeSlider.doubleValue = Double(min(300, max(110, tileWidth + delta))); resizeTiles() }
 
-    var dateOptions: [CaptureDay?] = []   // popup items after "All Dates"
+    var dateOptions: [CaptureDay?] = []  // popup items after "All Dates"
 
     func rebuildDateFilter() {
         datePopup.removeAllItems(); dateOptions = []
@@ -923,8 +945,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
             }
             if let missing = counts[nil] { datePopup.addItem(withTitle: "No Capture Date  (\(missing))"); dateOptions.append(nil) }
         }
-        if let current = dateFilter, let index = dateOptions.firstIndex(where: { $0 == current }) { datePopup.selectItem(at: index + 1) }
-        else { dateFilter = nil; datePopup.selectItem(at: 0) }
+        if let current = dateFilter, let index = dateOptions.firstIndex(where: { $0 == current }) { datePopup.selectItem(at: index + 1) } else { dateFilter = nil; datePopup.selectItem(at: 0) }
     }
 
     // MARK: Refresh
@@ -950,8 +971,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         if let plan {
             let imported = plan.groups.filter { $0.status == .imported }.count
             let newGroups = plan.newGroups.count
-            countsLabel.stringValue = "\(plan.groups.count) photos (\(plan.files.count) files) · \(newGroups) new · \(imported) already imported"
-                + { let other = plan.ignored + plan.orphanSidecars.count; return other == 0 ? "" : " · \(other) other \(other == 1 ? "file" : "files") not imported" }()
+            countsLabel.stringValue =
+                "\(plan.groups.count) photos (\(plan.files.count) files) · \(newGroups) new · \(imported) already imported"
+                + {
+                    let other = plan.ignored + plan.orphanSidecars.count; return other == 0 ? "" : " · \(other) other \(other == 1 ? "file" : "files") not imported"
+                }()
                 + (plan.cachedGroups > 0 ? " · \(plan.cachedGroups) cached matches" : "")
         } else if let preliminary {
             countsLabel.stringValue = "\(preliminary.count) photos found · checking dates and duplicates…"
@@ -965,7 +989,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
             emptyState.stringValue = "Looking for photos…"
         } else if plan != nil && sections.isEmpty {
             emptyState.stringValue = "No photos match these filters."
-        } else { emptyState.stringValue = "" }
+        } else {
+            emptyState.stringValue = ""
+        }
         emptyState.isHidden = emptyState.stringValue.isEmpty
 
         // Inspector state
@@ -1006,8 +1032,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
             var counted = Set<String>()
             for file in plan.members(group) where plan.needsCopy(file) {
                 let key: String
-                if let beside = file.besideDirectory { key = String(beside.path.dropFirst(plan.root.path.count + 1)) + " (beside imported photo)" }
-                else { key = group.folder ?? "⚠︎ needs a capture date" }
+                if let beside = file.besideDirectory {
+                    key = String(beside.path.dropFirst(plan.root.path.count + 1)) + " (beside imported photo)"
+                } else {
+                    key = group.folder ?? "⚠︎ needs a capture date"
+                }
                 if counted.insert(key).inserted { folders[key, default: (0, 0)].groups += 1 }
                 folders[key, default: (0, 0)].files += 1
             }
@@ -1016,7 +1045,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         let lines = folders.keys.sorted().prefix(8).map { key in
             "\(key.hasPrefix("⚠︎") ? key : base + key.replacingOccurrences(of: " (beside", with: "/ (beside").appending(key.contains("(beside") ? "" : "/"))\n   \(folders[key]!.groups) \(folders[key]!.groups == 1 ? "photo" : "photos") · \(folders[key]!.files) \(folders[key]!.files == 1 ? "file" : "files")"
         }
-        previewLabel.stringValue = (selection.isEmpty ? "All new photos:\n" : "Selected photos:\n") + lines.joined(separator: "\n")
+        previewLabel.stringValue =
+            (selection.isEmpty ? "All new photos:\n" : "Selected photos:\n") + lines.joined(separator: "\n")
             + (folders.count > 8 ? "\n…and \(folders.count - 8) more folders" : "")
     }
 
@@ -1063,7 +1093,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         let undatedNotice = "no capture date and"
         if undated > 0 {
             status("\(undated) new \(undated == 1 ? "photo has" : "photos have") \(undatedNotice) \(undated == 1 ? "is" : "are") excluded until you choose a date in Import Options.")
-        } else if statusLabel.stringValue.contains(undatedNotice) { status("") }
+        } else if statusLabel.stringValue.contains(undatedNotice) {
+            status("")
+        }
         updatePreview()
     }
 
@@ -1083,7 +1115,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         let volume = ejectableVolume()
         let token = Cancellation(); importToken = token
         state = .importing
-        thumbnails.concurrency = 1   // leave card bandwidth for copying
+        thumbnails.concurrency = 1  // leave card bandwidth for copying
         progressBar.isIndeterminate = false; progressBar.doubleValue = 0
         status("Preparing to import \(groups.count) photos…")
         refresh(); sidebar.reloadData(); selectSidebarRow(); onStateChange?()
@@ -1093,12 +1125,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         DispatchQueue.global(qos: .userInitiated).async { [weak self, retainedSnapshot] in
             defer { withExtendedLifetime(retainedSnapshot) {} }
             do {
-                let result = try Importer.run(plan, selection: groups, cancellation: token, verificationCache: DuplicateVerificationCache(directory: cacheDirectory), progress: { update in
-                    DispatchQueue.main.async {
-                        self?.status(update.text)
-                        if let fraction = update.fraction { self?.progressBar.doubleValue = fraction }
-                    }
-                })
+                let result = try Importer.run(
+                    plan, selection: groups, cancellation: token, verificationCache: DuplicateVerificationCache(directory: cacheDirectory),
+                    progress: { update in
+                        DispatchQueue.main.async {
+                            self?.status(update.text)
+                            if let fraction = update.fraction { self?.progressBar.doubleValue = fraction }
+                        }
+                    })
                 DispatchQueue.main.async { self?.importFinished(result, plan: plan, settings: snapshot, volume: volume) }
             } catch {
                 DispatchQueue.main.async { self?.importFailed(error, plan: plan, groups: groups) }
@@ -1110,7 +1144,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         if scanSource == plan.source {
             self.plan = plan.applying(result.outcomes)
             selection = self.plan!.newGroups.intersection(selection)
-        } else { self.plan = nil; selection = [] }
+        } else {
+            self.plan = nil; selection = []
+        }
         thumbnails.concurrency = ThumbnailLoader.defaultConcurrency
         var detail = "\(result.copied) new \(result.copied == 1 ? "file" : "files") copied and verified from \(result.groups) \(result.groups == 1 ? "photo" : "photos")."
         if result.skipped > 0 { detail += " \(result.skipped) already present and verified." }
@@ -1120,9 +1156,17 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
             if snapshot.editorAvailable {
                 let configuration = NSWorkspace.OpenConfiguration(); configuration.activates = true
                 NSWorkspace.shared.open(result.folders, withApplicationAt: app, configuration: configuration) { _, error in
-                    if let error { DispatchQueue.main.async { self.showError("Couldn’t open the folders in \(snapshot.editorName)", ImportError("Import succeeded, but \(snapshot.editorName) could not open the folders: \(error.localizedDescription)")) } }
+                    if let error {
+                        DispatchQueue.main.async {
+                            self.showError(
+                                "Couldn’t open the folders in \(snapshot.editorName)",
+                                ImportError("Import succeeded, but \(snapshot.editorName) could not open the folders: \(error.localizedDescription)"))
+                        }
+                    }
                 }
-            } else { detail += "\n\n\(snapshot.editorName) was not found, so folders were not opened." }
+            } else {
+                detail += "\n\n\(snapshot.editorName) was not found, so folders were not opened."
+            }
         }
         status("Import complete: \(result.copied) copied and verified.")
         // Never eject a card that still holds new photos the user has not imported.
@@ -1137,7 +1181,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
                 do { try NSWorkspace.shared.unmountAndEjectDevice(at: volume) } catch { failure = error }
                 DispatchQueue.main.async {
                     self.state = .idle; self.refresh(); self.onStateChange?()
-                    self.showResult(result, detail: detail + (failure.map { "\n\nThe card could not be ejected: \($0.localizedDescription) Eject it in Finder." } ?? "\n\nThe card was safely ejected."))
+                    self.showResult(
+                        result, detail: detail + (failure.map { "\n\nThe card could not be ejected: \($0.localizedDescription) Eject it in Finder." } ?? "\n\nThe card was safely ejected."))
                     self.finishWork()
                 }
             }
@@ -1165,8 +1210,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         if canRescan { alert.addButton(withTitle: "Scan Again") }
         if failure != nil { alert.addButton(withTitle: "Show Report") }
         present(alert) { answer in
-            if canRescan && answer == .alertSecondButtonReturn { self.startScan() }
-            else if let failure, answer == (canRescan ? .alertThirdButtonReturn : .alertSecondButtonReturn) {
+            if canRescan && answer == .alertSecondButtonReturn {
+                self.startScan()
+            } else if let failure, answer == (canRescan ? .alertThirdButtonReturn : .alertSecondButtonReturn) {
                 NSWorkspace.shared.activateFileViewerSelecting([failure.receipt])
             }
             self.finishWork()
@@ -1188,15 +1234,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
 
     /// Attach alerts to the window when it is visible; otherwise (window closed, app in the menu bar) show them as panels.
     func present(_ alert: NSAlert, completion: @escaping (NSApplication.ModalResponse) -> Void = { _ in }) {
-        if let window, window.isVisible, window.attachedSheet == nil { alert.beginSheetModal(for: window, completionHandler: completion) }
-        else { completion(alert.runModal()) }
+        if let window, window.isVisible, window.attachedSheet == nil { alert.beginSheetModal(for: window, completionHandler: completion) } else { completion(alert.runModal()) }
     }
 
     /// Only a detected camera card that does not hold the destination may be ejected.
     func ejectableVolume() -> URL? {
         guard let source, cards.contains(source),
-              let volume = try? source.resourceValues(forKeys: [.volumeURLKey]).volume,
-              volume.path.hasPrefix("/Volumes/"), !settings.destination.hasPrefix(volume.path + "/"), settings.destination != volume.path else { return nil }
+            let volume = try? source.resourceValues(forKeys: [.volumeURLKey]).volume,
+            volume.path.hasPrefix("/Volumes/"), !settings.destination.hasPrefix(volume.path + "/"), settings.destination != volume.path
+        else { return nil }
         return volume
     }
 

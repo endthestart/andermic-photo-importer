@@ -25,9 +25,11 @@ enum Theme {
     /// A small uppercase, tracked label over a group of controls.
     static func sectionLabel(_ text: String) -> NSTextField {
         let field = NSTextField(labelWithString: "")
-        field.attributedStringValue = NSAttributedString(string: text.uppercased(), attributes: [
-            .font: font("section"), .foregroundColor: muted, .kern: DesignTokens.sectionTracking,
-        ])
+        field.attributedStringValue = NSAttributedString(
+            string: text.uppercased(),
+            attributes: [
+                .font: font("section"), .foregroundColor: muted, .kern: DesignTokens.sectionTracking,
+            ])
         field.setAccessibilityLabel(text)
         return field
     }

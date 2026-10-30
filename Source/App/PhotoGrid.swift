@@ -47,7 +47,9 @@ final class ThumbnailLoader {
             guard expectedGeneration == self.generation, !operation.isCancelled else { self.lock.unlock(); return }
             if let rendered {
                 self.cache.setObject(rendered.image, forKey: key as NSString, cost: rendered.cost)
-            } else { self.failed.insert(key) }
+            } else {
+                self.failed.insert(key)
+            }
             self.lock.unlock()
             DispatchQueue.main.async {
                 self.lock.lock(); let current = expectedGeneration == self.generation; self.lock.unlock()
@@ -70,18 +72,21 @@ final class ThumbnailLoader {
 
     static func render(_ url: URL, maxPixels: Int = 480) -> Rendered? {
         guard MediaTypes.role(of: url) != .video,
-              let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary) else { return nil }
+            let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary)
+        else { return nil }
         let isRAW = MediaTypes.role(of: url) == .raw
         func thumbnail(always: Bool) -> CGImage? {
-            CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                // Never develop a full RAW just to fill a grid tile. If no
-                // embedded preview is available, retain the importable placeholder.
-                kCGImageSourceCreateThumbnailFromImageIfAbsent: !isRAW,
-                kCGImageSourceCreateThumbnailFromImageAlways: always,
-                kCGImageSourceThumbnailMaxPixelSize: maxPixels,
-                kCGImageSourceCreateThumbnailWithTransform: true,
-                kCGImageSourceShouldCacheImmediately: true,
-            ] as CFDictionary)
+            CGImageSourceCreateThumbnailAtIndex(
+                source, 0,
+                [
+                    // Never develop a full RAW just to fill a grid tile. If no
+                    // embedded preview is available, retain the importable placeholder.
+                    kCGImageSourceCreateThumbnailFromImageIfAbsent: !isRAW,
+                    kCGImageSourceCreateThumbnailFromImageAlways: always,
+                    kCGImageSourceThumbnailMaxPixelSize: maxPixels,
+                    kCGImageSourceCreateThumbnailWithTransform: true,
+                    kCGImageSourceShouldCacheImmediately: true,
+                ] as CFDictionary)
         }
         // Prefer an embedded preview; decode the image only when that preview is too small to look sharp.
         var image = thumbnail(always: false)
@@ -189,7 +194,10 @@ final class GroupTileView: NSView {
         let dimmed = entry.status == .imported || entry.status == .sourceDuplicate
         imageView.alphaValue = dimmed ? 0.45 : 1
         updateCheck()
-        toolTip = ((entry.cachedVerification ? ["Cached match: file attributes and samples are unchanged. Import rechecks full contents; File > Full Verification bypasses the cache."] : []) + [entry.name + " — " + entry.kinds, entry.detail] + (entry.dateOrigin.map { ["Date from " + $0] } ?? [])
+        toolTip =
+            ((entry.cachedVerification ? ["Cached match: file attributes and samples are unchanged. Import rechecks full contents; File > Full Verification bypasses the cache."] : []) + [
+                entry.name + " — " + entry.kinds, entry.detail,
+            ] + (entry.dateOrigin.map { ["Date from " + $0] } ?? [])
             + (entry.destination.map { ["→ " + $0] } ?? [])).joined(separator: "\n")
         setAccessibilityLabel("\(entry.name), \(entry.kinds), \(entry.detail)\(statusText.map { ", " + $0 } ?? "")")
     }
@@ -201,7 +209,9 @@ final class GroupTileView: NSView {
         let configuration = NSImage.SymbolConfiguration(pointSize: 17, weight: .semibold)
             .applying(isChecked ? .init(paletteColors: [Theme.ground, Theme.accent]) : .init(paletteColors: [.white]))
         check.image = NSImage(systemSymbolName: name, accessibilityDescription: isChecked ? "Selected" : "Not selected")?.withSymbolConfiguration(configuration)
-        check.shadow = { let shadow = NSShadow(); shadow.shadowBlurRadius = 2; shadow.shadowColor = .black.withAlphaComponent(0.5); return shadow }()
+        check.shadow = {
+            let shadow = NSShadow(); shadow.shadowBlurRadius = 2; shadow.shadowColor = .black.withAlphaComponent(0.5); return shadow
+        }()
         frameView.layer?.borderWidth = isChecked ? 3 : 0
         frameView.layer?.borderColor = Theme.accent.cgColor
         setAccessibilityValue(isChecked)
@@ -229,7 +239,10 @@ final class GroupTileView: NSView {
 /// A capsule badge on a photo: a status colour with ground text, or (without a tint) text on a ground scrim.
 final class Pill: NSView {
     private let label = NSTextField(labelWithString: "")
-    var text: String { get { label.stringValue } set { label.stringValue = newValue; isHidden = newValue.isEmpty } }
+    var text: String {
+        get { label.stringValue }
+        set { label.stringValue = newValue; isHidden = newValue.isEmpty }
+    }
     var tint: NSColor? { didSet { applyTint() } }
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -237,8 +250,10 @@ final class Pill: NSView {
         label.font = Theme.font("badge")
         label.lineBreakMode = .byTruncatingTail
         label.translatesAutoresizingMaskIntoConstraints = false; addSubview(label)
-        NSLayoutConstraint.activate([label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 7), label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -7),
-                                     label.topAnchor.constraint(equalTo: topAnchor, constant: 2), label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2)])
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 7), label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -7),
+            label.topAnchor.constraint(equalTo: topAnchor, constant: 2), label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2),
+        ])
         applyTint()
     }
     required init?(coder: NSCoder) { fatalError() }
