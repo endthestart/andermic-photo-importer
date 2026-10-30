@@ -1,6 +1,6 @@
 # ADR-0012: Reuse native capture dates in verified-file previews
 
-Status: implemented on the performance follow-up branch on 2026-10-30, pending final UI qualification.
+Status: accepted and synthetically UI-qualified on 2026-10-30.
 
 ## Context
 
@@ -20,4 +20,4 @@ The core run API accepts the bundled metadata reader for this confirmation. A ca
 
 Synthetic regressions cover reduced header reads, undecodable/missing native dates, source-hash retention when a destination disappears, legacy-cache enrichment without TTL renewal, exact TTL expiry, a valid-looking incorrect cached day, invalid calendar components, forged origin strings, byte-preserved imports, and explicit fallback dates that must not leak into the cache. Existing safety checks remain in place.
 
-The optimization targets preview metadata I/O. It does not remove destination inventory enumeration, source listing, fresh samples, native reads for new originals, or full import-time verification. Real-card timing and final UI qualification are recorded in VALIDATION.md and PERFORMANCE.md; no claim of instant scanning follows from a synthetic pass.
+The optimization targets preview metadata I/O. It does not remove destination inventory enumeration, source listing, fresh samples, native reads for new originals, or full verification of selected imports. ADR-0013 subsequently optimizes omitted cached matches. Real-card timing and final UI qualification are recorded in VALIDATION.md and PERFORMANCE.md; no claim of instant scanning follows from a synthetic pass.

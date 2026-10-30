@@ -763,7 +763,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
                       ByteCountFormatter.string(fromByteCount: Int64(reads.total), countStyle: .file),
                       ByteCountFormatter.string(fromByteCount: Int64(value.files.reduce(0) { $0 + $1.size }), countStyle: .file))
                + (value.scanReads.cachedCaptureDates > 0 ? " \(value.scanReads.cachedCaptureDates) cached capture dates." : "")
-               + (value.cachedGroups > 0 ? " \(value.cachedGroups) cached matches; full contents are rechecked during import. File > Full Verification bypasses the cache." : ""))
+               + (value.cachedGroups > 0 ? " \(value.cachedGroups) cached matches. Import checks attributes and samples for unselected previous imports; Full Verification rereads complete contents." : ""))
         refresh()
         gridScroll.contentView.scroll(to: .zero)
         gridScroll.reflectScrolledClipView(gridScroll.contentView)

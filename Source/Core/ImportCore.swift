@@ -74,7 +74,7 @@ struct PlannedFile {
     var besideDirectory: URL? = nil
     /// A photo copied again only so that a changed sidecar keeps a matching photo (see `resolveSidecars`).
     var companion = false
-    /// Preview hint only. Import still rechecks both complete files.
+    /// Cached recognition; selected files are fully rechecked during import.
     var cachedVerification = false
     var cachedCaptureMetadata = false
 }
@@ -329,7 +329,8 @@ enum Importer {
             a.st_ctimespec.tv_sec == b.st_ctimespec.tv_sec && a.st_ctimespec.tv_nsec == b.st_ctimespec.tv_nsec
     }
 
-    // A bounded sample only rejects candidates. Equality always requires a full SHA-256.
+    // A sample rejects candidates or validates an unchanged-file cache record;
+    // it cannot independently establish byte equality.
     static func fingerprint(_ url: URL, cancellation: Cancellation, metrics: ReadMetrics? = nil) throws -> (String, stat) {
         let fd = open(url.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
         guard fd >= 0 else { throw ImportError("Cannot read \(url.path)") }
@@ -765,18 +766,20 @@ enum Importer {
         guard fsync(directoryFD) == 0 else { throw ImportError("The copy is verified, but the folder could not be flushed. Keep the card inserted.") }
     }
 
-    /// Cache hints outside the selection still influenced what the user considers new.
-    /// Recheck every such match before copying or allowing successful completion/ejection.
+    /// Previously imported files outside the selection use the same fixed-expiry,
+    /// unchanged-file assumption as preview. Uncertain records require full reads.
     private static func verifyCachedPreview(_ plan: ImportPlan, selected: Set<Int>, cancellation: Cancellation,
-                                            verificationCache: DuplicateVerificationCache?, progress: (ImportProgress) -> Void) throws {
+                                            verificationCache: DuplicateVerificationCache?, metrics: ReadMetrics?,
+                                            progress: (ImportProgress) -> Void) throws -> Int {
         // Selected members are rechecked by the normal import path below. Only the
         // cached matches omitted from that selection need this separate preflight.
         let cached = plan.files.filter { $0.cachedVerification && !selected.contains($0.group) }
         let namespace = DuplicateVerificationCache.namespace(root: plan.root)
+        var reused = 0
         for (index, file) in cached.enumerated() {
           try autoreleasepool {
             try cancellation.check()
-            progress(ImportProgress("Rechecking cached match \(index + 1) of \(cached.count): \(file.source.lastPathComponent)", fraction: 0))
+            progress(ImportProgress("Checking previous imports \(index + 1) of \(cached.count): \(file.source.lastPathComponent)", fraction: 0))
             guard let target = file.existing, let expected = file.digest,
                   stable(file.sourceInfo, try info(file.source)) else {
                 throw ImportError("A cached match changed. Use Full Verification before importing. The card has not been ejected.")
@@ -784,22 +787,43 @@ enum Importer {
             try assertDirectory(file.source.deletingLastPathComponent())
             try assertDirectory(target.deletingLastPathComponent())
             let targetInfo = try info(target)
+            let sourceSample = try fingerprint(file.source, cancellation: cancellation, metrics: metrics)
+            let targetSample = try fingerprint(target, cancellation: cancellation, metrics: metrics)
+            guard stable(file.sourceInfo, sourceSample.1), stable(targetInfo, targetSample.1),
+                  stable(sourceSample.1, try info(file.source)), stable(targetSample.1, try info(target)) else {
+                throw ImportError("A cached match changed while checking it. Scan again before importing.")
+            }
+            // Look up both sides so a single stale record costs one complete read, not two.
+            let sourceHit = namespace.flatMap { verificationCache?.hash(for: file.source, namespace: $0, info: sourceSample.1, sample: sourceSample.0) } == expected
+            let targetHit = namespace.flatMap { verificationCache?.hash(for: target, namespace: $0, info: targetSample.1, sample: targetSample.0) } == expected
+            if sourceHit && targetHit {
+                reused += 1
+                return
+            }
+            progress(ImportProgress("Verifying changed or expired match \(index + 1) of \(cached.count): \(file.source.lastPathComponent)", fraction: 0))
             let hashes: (String, String)
-            if file.sourceInfo.st_dev != targetInfo.st_dev {
-                hashes = try digestPair(file.source, target, cancellation: cancellation)
+            if sourceHit {
+                hashes = (expected, try digest(target, cancellation: cancellation, metrics: metrics).0)
+            } else if targetHit {
+                hashes = (try digest(file.source, cancellation: cancellation, metrics: metrics).0, expected)
+            } else if file.sourceInfo.st_dev != targetInfo.st_dev {
+                hashes = try digestPair(file.source, target, cancellation: cancellation, metrics: metrics)
             } else {
-                hashes = (try digest(file.source, cancellation: cancellation).0, try digest(target, cancellation: cancellation).0)
+                hashes = (try digest(file.source, cancellation: cancellation, metrics: metrics).0,
+                          try digest(target, cancellation: cancellation, metrics: metrics).0)
             }
             guard hashes.0 == expected, hashes.1 == expected,
                   stable(file.sourceInfo, try info(file.source)), stable(targetInfo, try info(target)) else {
                 throw ImportError("A cached match no longer has identical contents. Use Full Verification before importing. The card has not been ejected.")
             }
+            // Refresh only sides that were read in full; a cache hit never renews its TTL.
             if let cache = verificationCache, let namespace {
-                cache.record(file.source, namespace: namespace, info: file.sourceInfo, sample: file.fingerprint, hash: expected)
-                cache.record(target, namespace: namespace, info: targetInfo, sample: file.fingerprint, hash: expected)
+                if !sourceHit { cache.record(file.source, namespace: namespace, info: sourceSample.1, sample: sourceSample.0, hash: expected) }
+                if !targetHit { cache.record(target, namespace: namespace, info: targetSample.1, sample: targetSample.0, hash: expected) }
             }
           }
         }
+        return reused
     }
 
     /// Cached date fields are untrusted preview hints. Re-read selected originals'
@@ -834,6 +858,7 @@ enum Importer {
     /// at the end. On cancellation or failure, completed groups stay and `ImportFailure` lists them.
     static func run(_ preview: ImportPlan, selection: Set<Int>? = nil, cancellation: Cancellation, reportDirectory: URL? = nil,
                     verificationCache: DuplicateVerificationCache? = nil, metadataHelper: MetadataHelper? = nil,
+                    cachedMatchMetrics: ReadMetrics? = nil,
                     progress: (ImportProgress) -> Void) throws -> ImportResult {
         var plan = preview
         try validateLocations(source: plan.source, root: plan.root)
@@ -863,7 +888,11 @@ enum Importer {
         var copiedBytes: UInt64 = 0
         do {
             try confirmCachedCaptureDates(&plan, selected: Set(chosen.map(\.id)), helper: metadataHelper, cancellation: cancellation, progress: progress)
-            try verifyCachedPreview(plan, selected: Set(chosen.map(\.id)), cancellation: cancellation, verificationCache: verificationCache, progress: progress)
+            let cachedMatches = try verifyCachedPreview(plan, selected: Set(chosen.map(\.id)), cancellation: cancellation,
+                                                       verificationCache: verificationCache, metrics: cachedMatchMetrics, progress: progress)
+            if cachedMatches > 0 {
+                receipt.notes.append("\(cachedMatches) previously imported files outside the selection used unexpired cached verification after fresh attribute and content-sample checks. Their full contents were not reread. Full Verification checks complete contents.")
+            }
             progress(ImportProgress("Rechecking the destination before copying…", fraction: 0))
             let library = try LibraryIndex(root: plan.root, cancellation: cancellation)
             for (index, group) in chosen.enumerated() {
@@ -994,13 +1023,42 @@ final class LibraryIndex {
         self.cacheNamespace = DuplicateVerificationCache.namespace(root: root)
         self.reuseCachedHashes = reuseCachedHashes
         // No persistent catalog: inspect all regular files, including files renamed to unknown extensions.
-        let (files, _) = try Importer.files(in: root, allowed: nil, cancellation: cancellation)
-        for url in files {
-            try cancellation.check()
-            let value = try Importer.info(url)
-            guard value.st_mode & S_IFMT == S_IFREG else { continue }
+        for (url, value) in try Self.regularFiles(in: root, cancellation: cancellation) {
             bySize[UInt64(value.st_size), default: []].append(url)
         }
+    }
+    /// One physical `fts` pass returns each file's attributes with its name, avoiding the URL
+    /// enumeration, sort, and second lstat of `Importer.files` (about 6x faster on 100k files).
+    /// Like that listing it skips hidden items, package contents, and symlinks, and fails on
+    /// unreadable folders rather than silently omitting candidates.
+    static func regularFiles(in root: URL, cancellation: Cancellation) throws -> [(URL, stat)] {
+        guard let path = strdup(root.standardizedFileURL.path) else { throw ImportError("Cannot list \(root.path)") }
+        defer { free(path) }
+        var arguments: [UnsafeMutablePointer<CChar>?] = [path, nil]
+        guard let walker = fts_open(&arguments, FTS_PHYSICAL | FTS_NOCHDIR, nil) else { throw ImportError("Cannot list \(root.path)") }
+        defer { fts_close(walker) }
+        var result: [(URL, stat)] = []
+        while true {
+            errno = 0
+            guard let entry = fts_read(walker) else { break }
+            try cancellation.check()
+            let item = entry.pointee
+            let hidden = item.fts_level > 0 && (item.fts_name == CChar(UInt8(ascii: ".")) || item.fts_statp.pointee.st_flags & UInt32(UF_HIDDEN) != 0)
+            switch Int32(item.fts_info) {
+            case FTS_D:
+                guard item.fts_level > 0 else { continue }
+                if hidden || (try? URL(fileURLWithPath: String(cString: item.fts_path), isDirectory: true).resourceValues(forKeys: [.isPackageKey]).isPackage) == true {
+                    fts_set(walker, entry, FTS_SKIP)
+                }
+            case FTS_F:
+                if !hidden { result.append((URL(fileURLWithPath: String(cString: item.fts_path), isDirectory: false), item.fts_statp.pointee)) }
+            case FTS_DNR, FTS_ERR, FTS_NS:
+                throw ImportError("Cannot list \(String(cString: item.fts_path)): \(String(cString: strerror(item.fts_errno)))")
+            default: break
+            }
+        }
+        guard errno == 0 else { throw ImportError("Cannot list \(root.path): \(String(cString: strerror(errno)))") }
+        return result
     }
     func match(source: URL, size: UInt64, fingerprint: String, hash: inout String?, cancellation: Cancellation, metrics: ReadMetrics? = nil) throws -> URL? {
         try matches(source: source, size: size, fingerprint: fingerprint, hash: &hash, all: false, cancellation: cancellation, metrics: metrics).first

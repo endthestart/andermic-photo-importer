@@ -601,6 +601,31 @@ let parallelCollision = try pairIndex.matches(source: collisionSource, size: UIn
     all: false, cancellation: Cancellation(), sourceDevice: forcedDevice)
 try check(!parallelCollision.contains(firstCollision) && !parallelCollision.contains(collisionTarget) && parallelCollision.contains { $0.lastPathComponent == "renamed-duplicate.data" }, "overlapped candidate hashing rejects sample collisions and still finds renamed exact originals")
 
+// The single-pass destination inventory keeps the listing's skip rules.
+let inventory = root.appendingPathComponent("InventoryLibrary")
+let inventoryVisible = inventory.appendingPathComponent("2025/05/renamed.data")
+for path in ["2025/05/renamed.data", ".hidden/copy.JPG", "2025/.dot.JPG", "Flagged/copy.JPG", "Old.photoslibrary/Masters/copy.JPG", "Tool.app/Contents/copy.JPG"] {
+    let url = inventory.appendingPathComponent(path)
+    try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try fm.copyItem(at: first, to: url)
+}
+try check(chflags(inventory.appendingPathComponent("Flagged/copy.JPG").path, UInt32(UF_HIDDEN)) == 0, "fixture can mark a file hidden")
+try fm.createSymbolicLink(at: inventory.appendingPathComponent("linked.JPG"), withDestinationURL: first)
+try fm.createSymbolicLink(at: inventory.appendingPathComponent("LinkedFolder"), withDestinationURL: card)
+let inventoryFiles = try LibraryIndex.regularFiles(in: inventory, cancellation: Cancellation())
+try check(inventoryFiles.map(\.0.path) == [inventoryVisible.path] && Importer.stable(inventoryFiles[0].1, try Importer.info(inventoryVisible)),
+          "destination inventory lists renamed regular files with their attributes and skips hidden, flagged, package, and linked items")
+var inventoryHash: String?
+try check(try LibraryIndex(root: inventory, cancellation: Cancellation()).matches(source: first, size: UInt64(try Importer.info(first).st_size),
+          fingerprint: try Importer.fingerprint(first, cancellation: Cancellation()).0, hash: &inventoryHash, all: true, cancellation: Cancellation()) == [inventoryVisible],
+          "destination index matches only the visible renamed copy")
+let unreadable = inventory.appendingPathComponent("Locked"); try fm.createDirectory(at: unreadable, withIntermediateDirectories: false)
+try check(chmod(unreadable.path, 0) == 0, "fixture can lock a folder")
+try rejects("an unreadable destination folder fails the inventory instead of hiding candidates") { _ = try LibraryIndex.regularFiles(in: inventory, cancellation: Cancellation()) }
+_ = chmod(unreadable.path, 0o755)
+let stoppedInventory = Cancellation(); stoppedInventory.cancel()
+try rejects("destination inventory responds to cancellation") { _ = try LibraryIndex.regularFiles(in: inventory, cancellation: stoppedInventory) }
+
 // MARK: Expiring preview verification hints (synthetic only)
 let cacheCard = root.appendingPathComponent("CacheCard"), cacheLibrary = root.appendingPathComponent("CacheLibrary")
 try fm.createDirectory(at: cacheCard, withIntermediateDirectories: true)
@@ -694,9 +719,48 @@ try fm.createSymbolicLink(at: linkHintsDirectory.appendingPathComponent("verifie
 let linkHints = hints(linkHintsDirectory); linkHints.save()
 try check(linkHints.count == 0 && (try bytes(protectedFixture)) == Data("keep these bytes".utf8), "cache never follows or writes through a linked cache file")
 
-// Every selected file is fully rechecked during import even if preview hints lie.
+// Unchanged previous imports outside the selection need samples, not complete
+// reads. Selected files still use the strict import path.
 cacheNow = epoch
 _ = try cachedPlan(reuse: false)
+let fastNew = cacheCard.appendingPathComponent("FAST.JPG")
+var fastBytes = cacheOriginalBytes; fastBytes.append(17); try fastBytes.write(to: fastNew)
+cacheNow = epoch.addingTimeInterval(29 * 24 * 60 * 60)
+let fastPreview = try cachedPlan()
+let fastReads = ReadMetrics()
+let fastImport = try Importer.run(fastPreview, selection: fastPreview.importableNewGroups, cancellation: Cancellation(), reportDirectory: reports,
+                                 verificationCache: hints(), metadataHelper: helper, cachedMatchMetrics: fastReads, progress: { _ in })
+try check(fastImport.copied == 1 && fastImport.skipped == 0 && fastReads.hashedBytes == 0 && fastReads.sampledBytes == 2 * 3 * 32 * 1024,
+          "Import All New samples unchanged previous copies without fully hashing them or counting them as selected skips")
+try check(fastImport.notes.contains(where: { $0.contains("1 previously imported files") && $0.contains("full contents were not reread") }),
+          "receipt distinguishes historical cached verification from fresh full verification")
+let fastTarget = fastImport.outcomes[fastNew.path]!
+try check((try bytes(fastTarget)) == fastBytes && (try bytes(cacheTarget)) == cacheOriginalBytes,
+          "fast preflight retains byte-preserved new copies and existing originals")
+cacheNow = epoch.addingTimeInterval(30 * 24 * 60 * 60)
+let expiredReads = ReadMetrics()
+let expiredImport = try Importer.run(fastPreview, selection: fastPreview.importableNewGroups, cancellation: Cancellation(), reportDirectory: reports,
+                                    verificationCache: hints(), metadataHelper: helper, cachedMatchMetrics: expiredReads, progress: { _ in })
+try check(expiredReads.hashedBytes == 2 * UInt64(cacheOriginalBytes.count) && expiredImport.copied == 0 && expiredImport.skipped == 1,
+          "cached import hits do not extend TTL; expired omitted matches require complete reads")
+try check(!expiredImport.notes.contains(where: { $0.contains("full contents were not reread") }), "fully reread matches are not reported as cache reuse")
+// A destination attribute change (e.g. a Finder tag) invalidates only that side's record.
+try check(chmod(cacheTarget.path, 0o640) == 0, "fixture can change destination attributes without changing contents")
+let partialReads = ReadMetrics()
+let partialImport = try Importer.run(fastPreview, selection: fastPreview.importableNewGroups, cancellation: Cancellation(), reportDirectory: reports,
+                                    verificationCache: hints(), metadataHelper: helper, cachedMatchMetrics: partialReads, progress: { _ in })
+try check(partialReads.hashedBytes == UInt64(cacheOriginalBytes.count) && partialImport.skipped == 1 && (try bytes(cacheTarget)) == cacheOriginalBytes,
+          "one stale cache side costs one complete read; the unchanged source record is reused")
+let refreshedReads = ReadMetrics()
+_ = try Importer.run(fastPreview, selection: fastPreview.importableNewGroups, cancellation: Cancellation(), reportDirectory: reports,
+                     verificationCache: hints(), metadataHelper: helper, cachedMatchMetrics: refreshedReads, progress: { _ in })
+try check(refreshedReads.hashedBytes == 0, "the fully reread side is recorded for the next import")
+_ = chmod(cacheTarget.path, 0o644)
+try fm.removeItem(at: fastNew); try fm.removeItem(at: fastTarget)
+cacheNow = epoch
+_ = try cachedPlan(reuse: false)
+// Every selected file is fully rechecked even if a cached hash lies. Attributes
+// changing after preview also invalidate omitted matches before any publication.
 let damagedDestination = try FileHandle(forWritingTo: cacheTarget)
 try damagedDestination.seek(toOffset: 128 * 1024); try damagedDestination.write(contentsOf: Data([42])); try damagedDestination.close()
 let unchangedSamples = try Importer.fingerprint(cacheTarget, cancellation: Cancellation()).0
@@ -706,14 +770,20 @@ poisonedHints.record(cacheTarget, namespace: cacheScope, info: try Importer.info
 poisonedHints.save()
 let guessedMatch = try cachedPlan()
 try check(guessedMatch.newCount == 0 && guessedMatch.cachedGroups == 1, "preview labels even an adversarial stale-hash match as cached")
-let damagedBytes = try bytes(cacheTarget)
+var damagedBytes = try bytes(cacheTarget)
 let genuinelyNew = cacheCard.appendingPathComponent("NEW.JPG")
 var extraOriginal = cacheOriginalBytes; extraOriginal.append(99); try extraOriginal.write(to: genuinelyNew)
 let mixedPreview = try cachedPlan()
 try check(mixedPreview.cachedGroups == 1 && mixedPreview.importableNewGroups.count == 1, "mixed preview contains a cached skip and a genuinely new original")
-try rejects("cached matches outside Import All New selection cannot authorize completion or ejection") {
-    _ = try Importer.run(mixedPreview, selection: mixedPreview.importableNewGroups, cancellation: Cancellation(), reportDirectory: reports, verificationCache: hints(), metadataHelper: helper, progress: { _ in })
+let changedDestination = try FileHandle(forWritingTo: cacheTarget)
+try changedDestination.seek(toOffset: 128 * 1024); try changedDestination.write(contentsOf: Data([43])); try changedDestination.close()
+damagedBytes = try bytes(cacheTarget)
+let changedReads = ReadMetrics()
+try rejects("changed attributes invalidate an omitted cached match and require full verification") {
+    _ = try Importer.run(mixedPreview, selection: mixedPreview.importableNewGroups, cancellation: Cancellation(), reportDirectory: reports,
+                         verificationCache: hints(), metadataHelper: helper, cachedMatchMetrics: changedReads, progress: { _ in })
 }
+try check(changedReads.hashedBytes == UInt64(cacheOriginalBytes.count), "changed omitted destination is read in full before rejecting different contents")
 try check((try bytes(cacheTarget)) == damagedBytes && !fm.fileExists(atPath: cacheLibrary.appendingPathComponent("2025/05/18/NEW.JPG").path), "stale cached skip aborts before publishing any selected new original")
 try fm.removeItem(at: genuinelyNew)
 let rebuiltPreview = try cachedPlan(reuse: false)

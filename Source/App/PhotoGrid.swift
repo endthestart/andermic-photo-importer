@@ -189,7 +189,7 @@ final class GroupTileView: NSView {
         let dimmed = entry.status == .imported || entry.status == .sourceDuplicate
         imageView.alphaValue = dimmed ? 0.45 : 1
         updateCheck()
-        toolTip = ((entry.cachedVerification ? ["Cached match: file attributes and samples are unchanged. Import rechecks full contents; File > Full Verification bypasses the cache."] : []) + [entry.name + " — " + entry.kinds, entry.detail] + (entry.dateOrigin.map { ["Date from " + $0] } ?? [])
+        toolTip = ((entry.cachedVerification ? ["Cached match: file attributes and samples are unchanged. Selected files are fully checked during import. Unselected previous imports reuse unexpired verification after fresh checks. File > Full Verification rereads complete contents."] : []) + [entry.name + " — " + entry.kinds, entry.detail] + (entry.dateOrigin.map { ["Date from " + $0] } ?? [])
             + (entry.destination.map { ["→ " + $0] } ?? [])).joined(separator: "\n")
         setAccessibilityLabel("\(entry.name), \(entry.kinds), \(entry.detail)\(statusText.map { ", " + $0 } ?? "")")
     }

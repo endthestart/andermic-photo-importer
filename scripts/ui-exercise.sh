@@ -400,8 +400,13 @@ echo 'Menu-bar launch, hidden scan, window/Dock lifecycle, settings, and foregro
 
 # Every imported file must byte-match a source original; no staging files may remain.
 python3 - "$root" <<'PY'
-import hashlib, os, sys
+import glob, hashlib, json, os, sys
 root = sys.argv[1]
+reports = [json.load(open(path)) for path in glob.glob(os.path.join(root, 'Settings/Reports/*.json'))]
+cached_reports = [report for report in reports if report.get('complete') and any('full contents were not reread' in note for note in report.get('notes', []))]
+assert cached_reports, 'No completed GUI import reported reuse of omitted previous-import verification'
+assert all(entry['action'] != 'cached' for report in cached_reports for entry in report['entries']), 'Cached omitted files must not become selected verified entries'
+print('GUI imports report historical cached checks separately from selected-file verification.')
 def sha(path):
     h = hashlib.sha256()
     with open(path, 'rb') as f:

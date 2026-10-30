@@ -2,7 +2,8 @@ import Foundation
 import CryptoKit
 import Darwin
 
-/// Rebuildable hints for previews only. Import never uses this cache to skip a read.
+/// Rebuildable hints for previews and unchanged prior imports outside the selection.
+/// Selected files and newly copied originals retain complete verification.
 /// Expiry is measured from a complete hash, not from the last cache hit.
 final class DuplicateVerificationCache {
     static let lifetime: TimeInterval = 30 * 24 * 60 * 60

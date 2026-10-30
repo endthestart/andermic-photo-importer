@@ -1,6 +1,6 @@
 # ADR-0011: Expiring verification hints for fast repeat previews
 
-Status: accepted on 2026-10-25. The owner approved the proposed rebuildable cache and requested a 30- or 90-day TTL. This implementation selects 30 days, with independent entry and byte limits.
+Status: accepted on 2026-10-25; import-time policy amended by ADR-0013 on 2026-10-30. The owner approved the proposed rebuildable cache and requested a 30- or 90-day TTL. This implementation selects 30 days, with independent entry and byte limits.
 
 ## Context
 
@@ -18,11 +18,11 @@ Bound the entire cache at **10,000 entries and 8 MiB serialized data**. Evict ol
 
 Preview groups using any cached matching evidence show a cached count and an orange **Imported (cached)** or **Partly imported (cached)** badge, with an explanation in the tooltip. **File > Full Verification** (Option-Command-R) bypasses persistent hints, rereads complete matching contents, and refreshes their expiry. Scan Again uses the cache. Related sidecars continue to use complete content checks; the main reuse path is for original photos/videos.
 
-Import constructs its duplicate index **without cache lookups**, even when recording fresh cache entries after completion. Before any copying, every cache-assisted match omitted from the selection is fully rechecked too, because it influenced which photos appeared new. A mismatch stops the import and asks for Full Verification. Selected duplicates are fully rechecked by the normal import path, without a redundant preflight. Copied originals retain streaming hashes, staged readback, exclusive publication, source stability checks, and final destination rereads. Cache-assisted previews cannot authorize a skip or successful completion/ejection without these checks. No source deletion or overwrite is added. A stale cached source digest can fail an import safely; Full Verification rebuilds the preview.
+The original implementation (superseded for omitted matches by ADR-0013) constructs its duplicate index **without cache lookups**, even when recording fresh cache entries after completion. Before any copying, every cache-assisted match omitted from the selection is fully rechecked too, because it influenced which photos appeared new. A mismatch stops the import and asks for Full Verification. Selected duplicates are fully rechecked by the normal import path, without a redundant preflight. Copied originals retain streaming hashes, staged readback, exclusive publication, source stability checks, and final destination rereads. Cache-assisted previews cannot authorize a skip or successful completion/ejection without these checks. No source deletion or overwrite is added. A stale cached source digest can fail an import safely; Full Verification rebuilds the preview.
 
 ## Consequences and limits
 
-The first preview after expiry/eviction, or after installation with no cache, pays the normal verification cost. Subsequent unchanged previews avoid complete hash reads for cached originals; metadata discovery, samples, directory enumeration, and sidecar checks remain. Import itself deliberately retains the full verification cost. No physical-card speedup is claimed until measured.
+The first preview after expiry/eviction, or after installation with no cache, pays the normal verification cost. Subsequent unchanged previews avoid complete hash reads for cached originals; metadata discovery, samples, directory enumeration, and sidecar checks remain. The original import policy deliberately retained the full verification cost; ADR-0013 removes complete reads for unchanged omitted matches. No physical-card speedup is claimed until measured.
 
 USB preview still stages all originals and uses disposable snapshot paths, so it does not receive the same source-read savings as a stable mounted card/folder. This decision does not replace USB transfer staging or solve large destination enumeration. Advanced history, selectable detection modes, recovery automation, and a catalog database remain deferred.
 
