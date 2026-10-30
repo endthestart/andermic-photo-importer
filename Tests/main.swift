@@ -441,6 +441,8 @@ let previousNameJSON = try Data(contentsOf: previousNameRoot.appendingPathCompon
 let renamed = Settings.load(directory: renamedRoot, legacyDirectories: [previousNameRoot, legacyRoot])
 try check(renamed.presets == customized.presets && !renamed.launchInBackground && renamed.cardInsertion == .scanInBackground, "the previous app name's settings win over the prototype's")
 try check((try Data(contentsOf: previousNameRoot.appendingPathComponent("settings.json"))) == previousNameJSON && (try Data(contentsOf: legacyRoot.appendingPathComponent("settings.json"))) == Data(legacyJSON.utf8), "renaming leaves earlier settings files untouched")
+try check(Settings.directory.lastPathComponent == "Corvus" && Settings.legacyDirectories.map(\.lastPathComponent) == ["Andermic Photo Importer", "Photo Import"]
+          && Settings.reportsDirectory.deletingLastPathComponent() == Settings.directory, "settings and reports live in Corvus and adopt the previous name's folder before the prototype's")
 
 // MARK: Bounded preview reads
 // Cold-scan workload: large new originals among same-size unrelated destination files.
