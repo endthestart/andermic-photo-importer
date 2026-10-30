@@ -4,17 +4,20 @@ import ImageIO
 /// Loads grid thumbnails off the main thread with bounded concurrency and an in-memory cache.
 /// Thumbnails are display-only: a file whose preview cannot be rendered is still importable.
 final class ThumbnailLoader {
+    static let defaultConcurrency = 1
+    static let cacheBudget = 64 * 1024 * 1024
     private let queue = OperationQueue()
     private let cache = NSCache<NSString, NSImage>()
     private var failed = Set<String>()
     private let lock = NSLock()
+    private var generation = 0
 
     init() {
         queue.name = "Andermic thumbnails"
-        queue.maxConcurrentOperationCount = 3
+        queue.maxConcurrentOperationCount = Self.defaultConcurrency
         queue.qualityOfService = .userInitiated
-        cache.countLimit = 1500
-        cache.totalCostLimit = 256 * 1024 * 1024
+        cache.countLimit = 256
+        cache.totalCostLimit = Self.cacheBudget
     }
 
     var concurrency: Int {
@@ -34,27 +37,46 @@ final class ThumbnailLoader {
 
     func load(_ url: URL, key: String, completion: @escaping (NSImage?) -> Void) -> Operation {
         let operation = BlockOperation()
+        lock.lock(); let expectedGeneration = generation; lock.unlock()
         operation.addExecutionBlock { [weak self, weak operation] in
             guard let self, let operation, !operation.isCancelled else { return }
-            let image = Self.render(url)
-            if let image {
-                let cost = Int(image.size.width * image.size.height * 4)
-                self.cache.setObject(image, forKey: key as NSString, cost: cost)
-            } else { self.lock.lock(); self.failed.insert(key); self.lock.unlock() }
-            DispatchQueue.main.async { if !operation.isCancelled { completion(image) } }
+            // OperationQueue workers can reuse a pool for multiple operations.
+            // Drain ImageIO/Objective-C scratch objects after each rendered image.
+            let rendered = autoreleasepool { Self.render(url) }
+            self.lock.lock()
+            guard expectedGeneration == self.generation, !operation.isCancelled else { self.lock.unlock(); return }
+            if let rendered {
+                self.cache.setObject(rendered.image, forKey: key as NSString, cost: rendered.cost)
+            } else { self.failed.insert(key) }
+            self.lock.unlock()
+            DispatchQueue.main.async {
+                self.lock.lock(); let current = expectedGeneration == self.generation; self.lock.unlock()
+                if current && !operation.isCancelled { completion(rendered?.image) }
+            }
         }
         queue.addOperation(operation)
         return operation
     }
 
-    func cancelAll() { queue.cancelAllOperations() }
+    func cancelAll() {
+        lock.lock(); generation += 1; cache.removeAllObjects(); failed.removeAll(); lock.unlock()
+        queue.cancelAllOperations()
+    }
 
-    static func render(_ url: URL, maxPixels: Int = 480) -> NSImage? {
+    struct Rendered {
+        let image: NSImage
+        let cost: Int
+    }
+
+    static func render(_ url: URL, maxPixels: Int = 480) -> Rendered? {
         guard MediaTypes.role(of: url) != .video,
               let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary) else { return nil }
+        let isRAW = MediaTypes.role(of: url) == .raw
         func thumbnail(always: Bool) -> CGImage? {
             CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
+                // Never develop a full RAW just to fill a grid tile. If no
+                // embedded preview is available, retain the importable placeholder.
+                kCGImageSourceCreateThumbnailFromImageIfAbsent: !isRAW,
                 kCGImageSourceCreateThumbnailFromImageAlways: always,
                 kCGImageSourceThumbnailMaxPixelSize: maxPixels,
                 kCGImageSourceCreateThumbnailWithTransform: true,
@@ -64,7 +86,9 @@ final class ThumbnailLoader {
         // Prefer an embedded preview; decode the image only when that preview is too small to look sharp.
         var image = thumbnail(always: false)
         if let small = image, max(small.width, small.height) < 280, MediaTypes.role(of: url) == .image { image = thumbnail(always: true) ?? small }
-        return image.map { NSImage(cgImage: $0, size: NSSize(width: $0.width, height: $0.height)) }
+        return image.map {
+            Rendered(image: NSImage(cgImage: $0, size: NSSize(width: $0.width, height: $0.height)), cost: $0.bytesPerRow * $0.height)
+        }
     }
 }
 
@@ -79,7 +103,8 @@ struct GridEntry {
     let missingDate: Bool
     let destination: String?
     var dateOrigin: String? = nil
-    var selectable: Bool { status != nil && status != .imported }
+    var cachedVerification = false
+    var selectable: Bool { status != nil }
 }
 
 final class GroupTileView: NSView {
@@ -96,6 +121,9 @@ final class GroupTileView: NSView {
 
     override init(frame: NSRect) {
         super.init(frame: frame)
+        // Include labels and badges in the tile's backing layer. Leaving just the
+        // photo layer-backed can retain old text when AppKit recycles grid views.
+        wantsLayer = true
         frameView.wantsLayer = true
         frameView.layer?.cornerRadius = 6
         frameView.layer?.masksToBounds = true
@@ -133,6 +161,14 @@ final class GroupTileView: NSView {
     }
     required init?(coder: NSCoder) { fatalError() }
 
+    func reset() {
+        entry = nil; isChecked = false; onToggle = nil; toolTip = nil
+        imageView.image = nil; nameLabel.stringValue = ""; detailLabel.stringValue = ""
+        kindBadge.text = ""; statusBadge.text = ""; check.image = nil
+        frameView.layer?.borderWidth = 0
+        needsDisplay = true
+    }
+
     func configure(_ entry: GridEntry, checked: Bool) {
         self.entry = entry; isChecked = checked
         nameLabel.stringValue = entry.name
@@ -141,19 +177,19 @@ final class GroupTileView: NSView {
         let statusText: String?
         switch entry.status {
         case nil: statusText = "Checking…"
-        case .imported?: statusText = "Imported"
-        case .partial?: statusText = "Partly imported"
+        case .imported?: statusText = entry.cachedVerification ? "Imported (cached)" : "Imported"
+        case .partial?: statusText = entry.cachedVerification ? "Partly imported (cached)" : "Partly imported"
         case .sidecarChanged?: statusText = "Sidecar differs"
         case .sourceDuplicate?: statusText = "Duplicate in source"
         case .new?: statusText = entry.missingDate ? "No capture date" : nil
         }
         statusBadge.text = statusText ?? ""
         statusBadge.isHidden = statusText == nil
-        statusBadge.tint = entry.missingDate && entry.status != .imported ? .systemRed : (entry.status == .imported ? .systemGreen : .black)
+        statusBadge.tint = entry.cachedVerification ? .systemOrange : entry.missingDate && entry.status != .imported ? .systemRed : (entry.status == .imported ? .systemGreen : .black)
         let dimmed = entry.status == .imported || entry.status == .sourceDuplicate
         imageView.alphaValue = dimmed ? 0.45 : 1
         updateCheck()
-        toolTip = ([entry.name + " — " + entry.kinds, entry.detail] + (entry.dateOrigin.map { ["Date from " + $0] } ?? [])
+        toolTip = ((entry.cachedVerification ? ["Cached match: file attributes and samples are unchanged. Import rechecks full contents; File > Full Verification bypasses the cache."] : []) + [entry.name + " — " + entry.kinds, entry.detail] + (entry.dateOrigin.map { ["Date from " + $0] } ?? [])
             + (entry.destination.map { ["→ " + $0] } ?? [])).joined(separator: "\n")
         setAccessibilityLabel("\(entry.name), \(entry.kinds), \(entry.detail)\(statusText.map { ", " + $0 } ?? "")")
     }
@@ -215,7 +251,7 @@ final class GroupTileItem: NSCollectionViewItem {
     override func prepareForReuse() {
         super.prepareForReuse()
         operation?.cancel(); operation = nil
-        tile.imageView.image = nil; tile.onToggle = nil
+        tile.reset()
     }
 }
 
@@ -225,6 +261,7 @@ final class SectionHeader: NSView, NSCollectionViewElement {
     let detail = NSTextField(labelWithString: "")
     override init(frame: NSRect) {
         super.init(frame: frame)
+        wantsLayer = true
         title.font = .systemFont(ofSize: 13, weight: .semibold)
         detail.font = .systemFont(ofSize: 12); detail.textColor = .secondaryLabelColor
         let row = NSStackView(views: [title, detail]); row.spacing = 8; row.alignment = .firstBaseline
@@ -232,9 +269,10 @@ final class SectionHeader: NSView, NSCollectionViewElement {
         NSLayoutConstraint.activate([row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 20), row.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6)])
     }
     required init?(coder: NSCoder) { fatalError() }
+    override func prepareForReuse() { super.prepareForReuse(); title.stringValue = ""; detail.stringValue = ""; needsDisplay = true }
 }
 
-/// The grid's own ⌘A selects all new photos (checkmarks), not collection-view items.
+/// The grid's own ⌘A checks all visible photos, including imported groups.
 final class PhotoCollectionView: NSCollectionView {
     var onSelectAll: (() -> Void)?
     override func selectAll(_ sender: Any?) { onSelectAll?() }

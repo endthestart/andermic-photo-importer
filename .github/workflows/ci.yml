@@ -49,6 +49,8 @@ jobs:
           command -v exiftool || echo 'No external ExifTool on PATH.'
       - name: Test importer safety
         run: ./test.sh
+      - name: Check bounded memory with synthetic data
+        run: ./scripts/performance-exercise.sh
       - name: Build app and icon
         run: ./build.sh
       - name: Package and verify archive

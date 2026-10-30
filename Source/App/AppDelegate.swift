@@ -5,6 +5,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var controller: MainWindowController!
     var statusItem: NSStatusItem!
     let monitor = CardMonitor()
+    let cameraMonitor = CameraMonitor()
     var notices: NoticesWindow?
     #if UI_AUTOMATION
     var automation: UIAutomation?
@@ -16,11 +17,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         controller.onStateChange = { [weak self] in self?.updateStatusItem() }
         monitor.excludedPath = { [weak self] in self?.controller.settings.destination ?? "" }
         monitor.onChange = { [weak self] cards, inserted in self?.controller.cardsChanged(cards, inserted: inserted) }
+        controller.cameraMonitor = cameraMonitor
+        cameraMonitor.onChange = { [weak self] cameras, inserted in self?.controller.camerasChanged(cameras, inserted: inserted) }
+        cameraMonitor.onRemove = { [weak self] camera in self?.controller.cameraRemoved(camera) }
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(unmounted(_:)), name: NSWorkspace.didUnmountNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(windowVisibilityChanged(_:)), name: NSWindow.willCloseNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(windowVisibilityChanged(_:)), name: NSWindow.didBecomeKeyNotification, object: nil)
         if !controller.settings.launchInBackground { showWindow() }
         monitor.start()
+        cameraMonitor.start()
         #if UI_AUTOMATION
         automation = UIAutomation(controller: controller)
         #endif
@@ -86,6 +91,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc func chooseSource() { showWindow(); controller.chooseSource() }
     @objc func chooseDestination() { showWindow(); controller.chooseDestination() }
     @objc func rescan() { controller.rescan() }
+    @objc func fullVerification() { controller.fullVerification() }
     @objc func importSelected() { controller.importSelected() }
     @objc func importAllNew() { controller.importAllNew() }
     @objc func selectAllNew() { controller.selectAllNew(nil) }
@@ -98,7 +104,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         let idle = controller.state == .idle
         switch item.action {
-        case #selector(rescan): return controller.source != nil && controller.state != .importing
+        case #selector(rescan), #selector(fullVerification): return controller.source != nil && controller.state != .importing
         case #selector(importSelected): return controller.importSelectedButton.isEnabled
         case #selector(importAllNew): return controller.importAllButton.isEnabled
         case #selector(chooseSource), #selector(chooseDestination): return controller.state != .importing
@@ -144,6 +150,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             item("Choose Destination…", #selector(chooseDestination), "o", [.command, .shift]),
             .separator(),
             item("Scan Again", #selector(rescan), "r"),
+            item("Full Verification", #selector(fullVerification), "r", [.command, .option]),
             item("Import Selected", #selector(importSelected), "i"),
             item("Import All New", #selector(importAllNew), "i", [.command, .shift]),
             .separator(),
@@ -154,7 +161,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             .separator(),
             item("Cut", #selector(NSText.cut(_:)), "x", target: .responderChain), item("Copy", #selector(NSText.copy(_:)), "c", target: .responderChain),
             item("Paste", #selector(NSText.paste(_:)), "v", target: .responderChain),
-            // Text fields handle ⌘A themselves; elsewhere the window selects all new photos.
+            // Text fields handle ⌘A themselves; elsewhere the window selects all visible photos.
             item("Select All", #selector(NSResponder.selectAll(_:)), "a", target: .responderChain),
             .separator(),
             item("Select All New Photos", #selector(selectAllNew), "a", [.command, .option]),

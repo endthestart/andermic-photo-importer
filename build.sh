@@ -67,6 +67,6 @@ sign() {
 }
 # Sign nested code inside-out: the Perl interpreter and its compiled extension modules, then the app.
 while IFS= read -r -d '' binary; do sign "$binary"; done < <(find "$app_path/Contents/Resources/MetadataHelper" -type f \( -name perl -o -name '*.bundle' \) -print0)
-sign "$app_path"
+sign --entitlements scripts/camera.entitlements "$app_path"
 /usr/bin/codesign --verify --deep --strict "$app_path"
 echo "Built Andermic Photo Importer $version ($architecture)."

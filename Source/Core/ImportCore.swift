@@ -73,6 +73,8 @@ struct PlannedFile {
     var besideDirectory: URL? = nil
     /// A photo copied again only so that a changed sidecar keeps a matching photo (see `resolveSidecars`).
     var companion = false
+    /// Preview hint only. Import still rechecks both complete files.
+    var cachedVerification = false
 }
 
 enum GroupStatus: String {
@@ -109,6 +111,13 @@ struct ImportPlan {
     let ignored: Int
     let orphanSidecars: [URL]
     let scanReads: ReadMetrics
+    // USB originals are read into a private snapshot. Reports retain camera provenance.
+    var sourceDescription: String? = nil
+    var sourceFileDescriptions: [String: String] = [:]
+
+    func describedSource(_ file: URL) -> String { sourceFileDescriptions[file.path] ?? file.path }
+
+    var cachedGroups: Int { groups.filter { members($0).contains(where: \.cachedVerification) }.count }
 
     var newCount: Int { files.filter { $0.existing == nil }.count }
     /// Files an import would copy: new files and files whose only match is elsewhere in this source.
@@ -162,7 +171,7 @@ struct ImportPlan {
     func applying(_ outcomes: [String: URL]) -> ImportPlan {
         var value = self
         for index in value.files.indices where outcomes[value.files[index].source.path] != nil {
-            value.files[index].existing = outcomes[value.files[index].source.path]; value.files[index].companion = false; value.files[index].besideDirectory = nil
+            value.files[index].existing = outcomes[value.files[index].source.path]; value.files[index].companion = false; value.files[index].besideDirectory = nil; value.files[index].cachedVerification = false
         }
         for index in value.groups.indices { value.groups[index].status = Importer.status(value.members(value.groups[index]), source: source) }
         return value
@@ -268,15 +277,49 @@ enum Importer {
         var before = stat(); guard fstat(fd, &before) == 0, before.st_mode & S_IFMT == S_IFREG else { throw ImportError("Not a regular file: \(url.path)") }
         let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: false)
         var hash = SHA256(), bytes: UInt64 = 0
-        while let data = try handle.read(upToCount: 1024 * 1024), !data.isEmpty {
-            try cancellation.check(); hash.update(data: data); bytes += UInt64(data.count)
+        while try autoreleasepool(invoking: { () throws -> Bool in
+            try cancellation.check()
+            guard let data = try handle.read(upToCount: 1024 * 1024), !data.isEmpty else { return false }
+            hash.update(data: data); bytes += UInt64(data.count)
             metrics?.hashedBytes += UInt64(data.count)
-        }
+            return true
+        }) {}
         var after = stat(); guard fstat(fd, &after) == 0, stable(before, after), bytes == UInt64(before.st_size) else {
             throw ImportError("File changed while reading: \(url.path). Scan again.")
         }
         return (hex(hash.finalize()), bytes)
     }
+    private final class DigestReply {
+        private let lock = NSLock()
+        private var result: Result<(String, UInt64), Error>?
+        func store(_ value: Result<(String, UInt64), Error>) { lock.lock(); result = value; lock.unlock() }
+        func get() throws -> (String, UInt64) {
+            lock.lock(); let value = result; lock.unlock()
+            guard let value else { throw ImportError("Parallel verification did not finish.") }
+            return try value.get()
+        }
+    }
+
+    /// Compare originals on independent volumes without serializing both full
+    /// reads. There is only one additional reader, and each hash keeps its own
+    /// counters and per-buffer pool. No sample or cached preview authorizes a skip.
+    static func digestPair(_ source: URL, _ candidate: URL, cancellation: Cancellation,
+                           metrics: ReadMetrics? = nil) throws -> (String, String) {
+        try cancellation.check()
+        let reply = DigestReply(), finished = DispatchGroup()
+        let sourceReads = ReadMetrics(), candidateReads = ReadMetrics()
+        finished.enter()
+        DispatchQueue.global(qos: .userInitiated).async {
+            defer { finished.leave() }
+            reply.store(Result { try autoreleasepool { try digest(candidate, cancellation: cancellation, metrics: candidateReads) } })
+        }
+        let sourceResult = Result { try digest(source, cancellation: cancellation, metrics: sourceReads) }
+        finished.wait()
+        metrics?.hashedBytes += sourceReads.hashedBytes + candidateReads.hashedBytes
+        let left = try sourceResult.get(), right = try reply.get()
+        return (left.0, right.0)
+    }
+
     static func stable(_ a: stat, _ b: stat) -> Bool {
         a.st_dev == b.st_dev && a.st_ino == b.st_ino && a.st_size == b.st_size &&
             a.st_mtimespec.tv_sec == b.st_mtimespec.tv_sec && a.st_mtimespec.tv_nsec == b.st_mtimespec.tv_nsec &&
@@ -295,12 +338,14 @@ enum Importer {
         let offsets = Set([UInt64(0), size > chunk ? (size - chunk) / 2 : 0, size > chunk ? size - chunk : 0]).sorted()
         var hash = SHA256()
         for offset in offsets {
+          try autoreleasepool {
             try cancellation.check()
             try handle.seek(toOffset: offset)
             let count = Int(min(chunk, size - offset))
             let data = try handle.read(upToCount: count) ?? Data()
             guard data.count == count else { throw ImportError("File changed while sampling. Scan again.") }
             hash.update(data: data); metrics?.sampledBytes += UInt64(data.count)
+          }
         }
         var after = stat()
         guard fstat(fd, &after) == 0, stable(before, after) else { throw ImportError("File changed while sampling. Scan again.") }
@@ -312,6 +357,7 @@ enum Importer {
         try helper.validate()
         var result: [String: (CaptureDay, String)] = [:]
         for start in stride(from: 0, to: urls.count, by: 80) {
+          try autoreleasepool {
             try cancellation.check()
             let batch = Array(urls[start..<min(start + 80, urls.count)])
             let temporary = fm.temporaryDirectory.appendingPathComponent("photo-import-metadata-" + UUID().uuidString)
@@ -347,6 +393,7 @@ enum Importer {
                     if let raw = row[key] as? String, let day = CaptureDay.parse(raw) { result[source] = (day, key); break }
                 }
             }
+          }
         }
         return result
     }
@@ -357,6 +404,7 @@ enum Importer {
         // ImageIO reads the standard original-capture field from a bounded header without
         // decoding pixels. Other dates and unsupported containers use the bundled ExifTool.
         for (index, url) in urls.enumerated() {
+          try autoreleasepool {
             try cancellation.check(); progress(index)
             let fd = open(url.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
             guard fd >= 0 else { throw ImportError("Cannot read \(url.path)") }
@@ -373,6 +421,7 @@ enum Importer {
                let text = exif[kCGImagePropertyExifDateTimeOriginal] as? String, let day = CaptureDay.parse(text) {
                 result[url.path] = (day, "ExifIFD:DateTimeOriginal")
             } else { unresolved.append(url) }
+          }
         }
         if !unresolved.isEmpty { result.merge(try dates(unresolved, helper: helper, cancellation: cancellation)) { first, _ in first } }
         return result
@@ -446,10 +495,11 @@ enum Importer {
         return result
     }
 
-    /// Preview an import. Reads bounded headers and samples; never writes.
+    /// Preview an import. Never writes originals; an optional local cache stores hash hints.
     /// `discovered` receives the related-file groups as soon as the source is listed,
     /// before dates and duplicates are known.
     static func plan(source: URL, settings: Settings, event: String, fallback: CaptureDay?, helper: MetadataHelper, cancellation: Cancellation,
+                     verificationCache: DuplicateVerificationCache? = nil, reuseCachedHashes: Bool = true,
                      progress: (ImportProgress) -> Void, discovered: (([SourceGroup]) -> Void)? = nil) throws -> ImportPlan {
         let root = URL(fileURLWithPath: settings.destination, isDirectory: true).standardizedFileURL
         try validateLocations(source: source, root: root)
@@ -468,17 +518,22 @@ enum Importer {
             if index % 25 == 0 { progress(ImportProgress("Reading capture dates (\(index + 1) of \(primaries.count))…", fraction: 0.4 * Double(index) / Double(primaries.count))) }
         }
         progress(ImportProgress("Checking the destination for photos already imported…", fraction: 0.4))
-        let library = try LibraryIndex(root: root, cancellation: cancellation)
+        let library = try LibraryIndex(root: root, cancellation: cancellation, verificationCache: verificationCache, reuseCachedHashes: reuseCachedHashes)
         var planned: [PlannedFile] = [], groups: [PhotoGroup] = []
         var seen: [String: [URL]] = [:]
         var checked = 0
+        var lastCheckProgress = Date.distantPast
         for (groupID, sourceGroup) in sourceGroups.enumerated() {
             var indices: [Int] = []
             var matches: [URL: [URL]] = [:]
             let sidecarPrimary = Dictionary(sourceGroup.sidecars.map { ($0.url, $0.primary) }, uniquingKeysWith: { a, _ in a })
             for url in sourceGroup.members {
                 checked += 1
-                if checked % 10 == 0 { progress(ImportProgress("Checking \(checked) of \(members.count): \(url.lastPathComponent)", fraction: 0.4 + 0.6 * Double(checked) / Double(members.count))) }
+                let now = Date()
+                if checked == 1 || checked == members.count || now.timeIntervalSince(lastCheckProgress) >= 0.1 {
+                    lastCheckProgress = now
+                    progress(ImportProgress("Checking \(checked) of \(members.count): \(url.lastPathComponent)", fraction: 0.4 + 0.6 * Double(checked) / Double(members.count)))
+                }
                 let role = MediaTypes.role(of: url)!
                 let (sample, version) = try fingerprint(url, cancellation: cancellation, metrics: metrics)
                 // Filesystem metadata updates can change ctime during metadata discovery.
@@ -497,7 +552,7 @@ enum Importer {
                     var hash: String?
                     // Every confirmed copy matters when sidecars must be found beside one of them.
                     let found = try library.matches(source: url, size: size, fingerprint: sample, hash: &hash, all: !sourceGroup.sidecars.isEmpty,
-                                                    cancellation: cancellation, metrics: metrics)
+                                                    cancellation: cancellation, metrics: metrics, sourceDevice: version.st_dev)
                     matches[url] = found
                     file.existing = found.first
                     if found.isEmpty {
@@ -509,6 +564,7 @@ enum Importer {
                     file.digest = hash
                     seen[key, default: []].append(url)
                 }
+                file.cachedVerification = file.existing != nil && (library.cachedFiles.contains(url) || matches[url, default: []].contains { library.cachedFiles.contains($0) })
                 guard stable(version, try info(url)) else { throw ImportError("Source changed during preview. Scan again.") }
                 indices.append(planned.count); planned.append(file)
             }
@@ -530,7 +586,9 @@ enum Importer {
         }
         let plan = ImportPlan(source: source, root: root, settings: settings, event: event, fallback: fallback, files: planned, groups: groups,
                               ignored: unsupported, orphanSidecars: orphans, scanReads: metrics)
-        return try plan.organized(template: settings.folderTemplate, event: event, fallback: fallback)
+        let organized = try plan.organized(template: settings.folderTemplate, event: event, fallback: fallback)
+        try cancellation.check(); verificationCache?.save()
+        return organized
     }
 
     /// A folder beside an imported photo may be the destination root itself or any real
@@ -572,10 +630,13 @@ enum Importer {
         guard stable(file.sourceInfo, before) else { throw ImportError("Source changed since the preview. Scan again.") }
         let input = FileHandle(fileDescriptor: inputFD, closeOnDealloc: false)
         var hash = SHA256(), bytes: UInt64 = 0
-        while let data = try input.read(upToCount: 1024 * 1024), !data.isEmpty {
-            try cancellation.check(); try output.write(contentsOf: data); hash.update(data: data); bytes += UInt64(data.count)
+        while try autoreleasepool(invoking: { () throws -> Bool in
+            try cancellation.check()
+            guard let data = try input.read(upToCount: 1024 * 1024), !data.isEmpty else { return false }
+            try output.write(contentsOf: data); hash.update(data: data); bytes += UInt64(data.count)
             copied(UInt64(data.count))
-        }
+            return true
+        }) {}
         var after = stat()
         let copiedHash = hex(hash.finalize())
         guard fstat(inputFD, &after) == 0, stable(before, after), bytes == file.size, file.digest == nil || copiedHash == file.digest else {
@@ -664,11 +725,48 @@ enum Importer {
         guard fsync(directoryFD) == 0 else { throw ImportError("The copy is verified, but the folder could not be flushed. Keep the card inserted.") }
     }
 
+    /// Cache hints outside the selection still influenced what the user considers new.
+    /// Recheck every such match before copying or allowing successful completion/ejection.
+    private static func verifyCachedPreview(_ plan: ImportPlan, selected: Set<Int>, cancellation: Cancellation,
+                                            verificationCache: DuplicateVerificationCache?, progress: (ImportProgress) -> Void) throws {
+        // Selected members are rechecked by the normal import path below. Only the
+        // cached matches omitted from that selection need this separate preflight.
+        let cached = plan.files.filter { $0.cachedVerification && !selected.contains($0.group) }
+        let namespace = DuplicateVerificationCache.namespace(root: plan.root)
+        for (index, file) in cached.enumerated() {
+          try autoreleasepool {
+            try cancellation.check()
+            progress(ImportProgress("Rechecking cached match \(index + 1) of \(cached.count): \(file.source.lastPathComponent)", fraction: 0))
+            guard let target = file.existing, let expected = file.digest,
+                  stable(file.sourceInfo, try info(file.source)) else {
+                throw ImportError("A cached match changed. Use Full Verification before importing. The card has not been ejected.")
+            }
+            try assertDirectory(file.source.deletingLastPathComponent())
+            try assertDirectory(target.deletingLastPathComponent())
+            let targetInfo = try info(target)
+            let hashes: (String, String)
+            if file.sourceInfo.st_dev != targetInfo.st_dev {
+                hashes = try digestPair(file.source, target, cancellation: cancellation)
+            } else {
+                hashes = (try digest(file.source, cancellation: cancellation).0, try digest(target, cancellation: cancellation).0)
+            }
+            guard hashes.0 == expected, hashes.1 == expected,
+                  stable(file.sourceInfo, try info(file.source)), stable(targetInfo, try info(target)) else {
+                throw ImportError("A cached match no longer has identical contents. Use Full Verification before importing. The card has not been ejected.")
+            }
+            if let cache = verificationCache, let namespace {
+                cache.record(file.source, namespace: namespace, info: file.sourceInfo, sample: file.fingerprint, hash: expected)
+                cache.record(target, namespace: namespace, info: targetInfo, sample: file.fingerprint, hash: expected)
+            }
+          }
+        }
+    }
+
     /// Import the selected groups (all groups when `selection` is nil). Existing members are
     /// re-confirmed by content; new members are staged, verified, published, and verified again
     /// at the end. On cancellation or failure, completed groups stay and `ImportFailure` lists them.
     static func run(_ plan: ImportPlan, selection: Set<Int>? = nil, cancellation: Cancellation, reportDirectory: URL? = nil,
-                    progress: (ImportProgress) -> Void) throws -> ImportResult {
+                    verificationCache: DuplicateVerificationCache? = nil, progress: (ImportProgress) -> Void) throws -> ImportResult {
         try validateLocations(source: plan.source, root: plan.root)
         let chosen = plan.groups.filter { selection?.contains($0.id) ?? true }
         guard !chosen.isEmpty else { throw ImportError("Select at least one photo to import.") }
@@ -685,7 +783,7 @@ enum Importer {
         let logs = reportDirectory ?? Settings.reportsDirectory
         try fm.createDirectory(at: logs, withIntermediateDirectories: true)
         let receiptURL = logs.appendingPathComponent(UUID().uuidString + ".json")
-        var receipt = Receipt(started: Date(), source: plan.source.path, destinationRoot: plan.root.path, selectedGroups: chosen.count)
+        var receipt = Receipt(started: Date(), source: plan.sourceDescription ?? plan.source.path, destinationRoot: plan.root.path, selectedGroups: chosen.count)
         func saveReceipt() throws {
             let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]; encoder.dateEncodingStrategy = .iso8601
             try encoder.encode(receipt).write(to: receiptURL, options: .atomic)
@@ -695,6 +793,7 @@ enum Importer {
         let totalBytes = max(1, plan.bytes(in: Set(chosen.map(\.id))))
         var copiedBytes: UInt64 = 0
         do {
+            try verifyCachedPreview(plan, selected: Set(chosen.map(\.id)), cancellation: cancellation, verificationCache: verificationCache, progress: progress)
             progress(ImportProgress("Rechecking the destination before copying…", fraction: 0))
             let library = try LibraryIndex(root: plan.root, cancellation: cancellation)
             for (index, group) in chosen.enumerated() {
@@ -709,7 +808,7 @@ enum Importer {
                 for file in members where file.role != .sidecar {
                     // Rehash candidates at import time; preview samples are never proof for a skip.
                     var hash: String?
-                    let found = try library.matches(source: file.source, size: file.size, fingerprint: file.fingerprint, hash: &hash, all: !sidecars.isEmpty, cancellation: cancellation)
+                    let found = try library.matches(source: file.source, size: file.size, fingerprint: file.fingerprint, hash: &hash, all: !sidecars.isEmpty, cancellation: cancellation, sourceDevice: file.sourceInfo.st_dev)
                     matches[file.source] = found
                     if let match = found.first {
                         guard let confirmed = hash, file.digest == nil || confirmed == file.digest,
@@ -725,13 +824,13 @@ enum Importer {
                 func record() {
                     for (file, target, hash) in verified {
                         skipped += 1; outcomes[file.source.path] = target
-                        receipt.entries.append(ReceiptEntry(source: file.source.path, destination: target.path, sha256: hash, action: "already imported and verified",
+                        receipt.entries.append(ReceiptEntry(source: plan.describedSource(file.source), destination: target.path, sha256: hash, action: "already imported and verified",
                                                             captureDate: file.date?.text, dateOrigin: file.dateOrigin, group: group.name, role: file.role.rawValue))
                     }
                     for (item, target, isNew) in published {
                         if isNew { copied += 1; folders.insert(target.deletingLastPathComponent()) } else { skipped += 1 }
                         outcomes[item.file.source.path] = target
-                        receipt.entries.append(ReceiptEntry(source: item.file.source.path, destination: target.path, sha256: item.hash,
+                        receipt.entries.append(ReceiptEntry(source: plan.describedSource(item.file.source), destination: target.path, sha256: item.hash,
                                                             action: isNew ? "copied and verified" : "already imported and verified",
                                                             captureDate: item.file.date?.text, dateOrigin: item.file.dateOrigin, group: group.name, role: item.file.role.rawValue))
                     }
@@ -778,14 +877,24 @@ enum Importer {
                 try saveReceipt()
             }
             try cancellation.check()
+            // Cache is write-only here: every duplicate and final copy is fully re-read.
+            let cacheNamespace = DuplicateVerificationCache.namespace(root: plan.root)
+            let sourceFiles = Dictionary(uniqueKeysWithValues: chosen.flatMap { plan.members($0) }.map { (plan.describedSource($0.source), $0) })
             // Re-read every final destination before allowing optional ejection.
             for (index, entry) in receipt.entries.enumerated() {
                 progress(ImportProgress("Final verification: \(URL(fileURLWithPath: entry.destination).lastPathComponent)", fraction: 0.9 + 0.1 * Double(index) / Double(receipt.entries.count)))
                 try assertDirectory(URL(fileURLWithPath: entry.destination).deletingLastPathComponent())
-                let (hash, _) = try digest(URL(fileURLWithPath: entry.destination), cancellation: cancellation)
-                guard hash == entry.sha256 else { throw ImportError("Final verification failed for \(URL(fileURLWithPath: entry.destination).lastPathComponent). Keep the card inserted and scan again.") }
+                let target = URL(fileURLWithPath: entry.destination), before = try info(target)
+                let (hash, _) = try digest(target, cancellation: cancellation)
+                guard hash == entry.sha256 else { throw ImportError("Final verification failed for \(target.lastPathComponent). Keep the card inserted and scan again.") }
+                if let cache = verificationCache, let namespace = cacheNamespace, let file = sourceFiles[entry.source], file.role != .sidecar,
+                   stable(before, try info(target)), stable(file.sourceInfo, try info(file.source)) {
+                    cache.record(file.source, namespace: namespace, info: file.sourceInfo, sample: file.fingerprint, hash: hash)
+                    cache.record(target, namespace: namespace, info: before, sample: file.fingerprint, hash: hash)
+                }
             }
             receipt.complete = true; try saveReceipt()
+            verificationCache?.save()
         } catch {
             receipt.cancelled = cancellation.isCancelled
             receipt.error = error.localizedDescription; try? saveReceipt()
@@ -804,7 +913,14 @@ final class LibraryIndex {
     private var byFingerprint: [UInt64: [String: [URL]]] = [:]
     private var cache: [URL: (stat, String)] = [:]
     private var samples: [URL: (stat, String)] = [:]
-    init(root: URL, cancellation: Cancellation) throws {
+    private let verificationCache: DuplicateVerificationCache?
+    private let cacheNamespace: String?
+    private let reuseCachedHashes: Bool
+    private(set) var cachedFiles = Set<URL>()
+    init(root: URL, cancellation: Cancellation, verificationCache: DuplicateVerificationCache? = nil, reuseCachedHashes: Bool = true) throws {
+        self.verificationCache = verificationCache
+        self.cacheNamespace = DuplicateVerificationCache.namespace(root: root)
+        self.reuseCachedHashes = reuseCachedHashes
         // No persistent catalog: inspect all regular files, including files renamed to unknown extensions.
         let (files, _) = try Importer.files(in: root, allowed: nil, cancellation: cancellation)
         for url in files {
@@ -817,8 +933,19 @@ final class LibraryIndex {
     func match(source: URL, size: UInt64, fingerprint: String, hash: inout String?, cancellation: Cancellation, metrics: ReadMetrics? = nil) throws -> URL? {
         try matches(source: source, size: size, fingerprint: fingerprint, hash: &hash, all: false, cancellation: cancellation, metrics: metrics).first
     }
-    /// Content-confirmed copies of `source`, sorted by path; only the first unless `all` is set.
-    func matches(source: URL, size: UInt64, fingerprint: String, hash: inout String?, all: Bool, cancellation: Cancellation, metrics: ReadMetrics? = nil) throws -> [URL] {
+    private func storedHash(_ url: URL, info: stat, sample: String) -> String? {
+        guard reuseCachedHashes, let cache = verificationCache, let namespace = cacheNamespace,
+              let hash = cache.hash(for: url, namespace: namespace, info: info, sample: sample) else { return nil }
+        cachedFiles.insert(url); return hash
+    }
+    private func rememberHash(_ url: URL, info: stat, sample: String, hash: String) {
+        guard let cache = verificationCache, let namespace = cacheNamespace,
+              let after = try? Importer.info(url), Importer.stable(info, after) else { return }
+        cache.record(url, namespace: namespace, info: after, sample: sample, hash: hash)
+    }
+    /// Matching copies, sorted by path. Preview may reuse explicitly marked cache hints.
+    /// Import constructs this index without a persistent cache, requiring complete reads.
+    func matches(source: URL, size: UInt64, fingerprint: String, hash: inout String?, all: Bool, cancellation: Cancellation, metrics: ReadMetrics? = nil, sourceDevice: dev_t? = nil) throws -> [URL] {
         var found: [URL] = []
         if byFingerprint[size] == nil {
             var group: [String: [URL]] = [:]
@@ -832,7 +959,7 @@ final class LibraryIndex {
         }
         for url in (byFingerprint[size]?[fingerprint] ?? []).sorted(by: { $0.path < $1.path }) {
             try cancellation.check()
-            // Each match is read again, so deleted or modified duplicates cannot cause unsafe skips.
+            // Check current identity and samples even when a preview reuses a prior hash.
             try Importer.assertDirectory(url.deletingLastPathComponent())
             guard let current = try? Importer.info(url) else { continue }
             guard current.st_mode & S_IFMT == S_IFREG else { throw ImportError("Destination changed during scan. Scan again.") }
@@ -843,12 +970,28 @@ final class LibraryIndex {
                 sample = value.0; samples[url] = (value.1, sample)
             }
             guard sample == fingerprint else { continue }
-            if hash == nil { hash = try Importer.digest(source, cancellation: cancellation, metrics: metrics).0 }
+            let sourceInfo = try Importer.info(source)
+            if hash == nil { hash = storedHash(source, info: sourceInfo, sample: fingerprint) }
+            let localHash = cache[url].flatMap { Importer.stable($0.0, current) ? $0.1 : nil }
+            let cached = localHash ?? storedHash(url, info: current, sample: sample)
             let candidate: String
-            if let cached = cache[url], Importer.stable(cached.0, current) { candidate = cached.1 }
-            else {
-                candidate = try Importer.digest(url, cancellation: cancellation, metrics: metrics).0
+            if hash == nil, cached == nil, try (sourceDevice ?? Importer.info(source).st_dev) != current.st_dev {
+                let pair = try Importer.digestPair(source, url, cancellation: cancellation, metrics: metrics)
+                hash = pair.0; candidate = pair.1
+                rememberHash(source, info: sourceInfo, sample: fingerprint, hash: pair.0)
+                rememberHash(url, info: current, sample: sample, hash: candidate)
                 cache[url] = (current, candidate)
+            } else {
+                if hash == nil {
+                    hash = try Importer.digest(source, cancellation: cancellation, metrics: metrics).0
+                    rememberHash(source, info: sourceInfo, sample: fingerprint, hash: hash!)
+                }
+                if let cached { candidate = cached }
+                else {
+                    candidate = try Importer.digest(url, cancellation: cancellation, metrics: metrics).0
+                    rememberHash(url, info: current, sample: sample, hash: candidate)
+                    cache[url] = (current, candidate)
+                }
             }
             if candidate == hash { found.append(url); if !all { break } }
         }

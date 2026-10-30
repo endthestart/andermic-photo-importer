@@ -15,7 +15,7 @@ Status: accepted on 2026-10-04 with the first-release implementation. Rules belo
 
 ## Duplicate status
 
-- A photo or video is already imported only when a complete SHA-256 match exists anywhere under the destination root, including renamed files. Size and samples only nominate candidates. Reports are never consulted.
+- A photo or video is content-confirmed as imported only when a complete SHA-256 match exists anywhere under the destination root, including renamed files. Size and samples only nominate candidates. Reports are never consulted. ADR-0011 amends previews: unchanged attributes and samples may reuse a previously verified hash for up to 30 days, with cached recognition visibly labelled. Import still requires complete current reads, and Full Verification bypasses persistent hints.
 - A sidecar is already imported only when an identical copy sits beside an imported copy of its photo, under the matching name (`<photo base>.xmp`, or `<photo filename>.dop` for full-filename sidecars). Every content-confirmed copy of the photo is checked. Identical sidecar contents elsewhere, such as template XMP files, do not count.
 - Group status:
   - **New:** no primary found.
@@ -42,7 +42,7 @@ A new photo in a partly imported group cannot share a suffix with already-import
 
 ## Selection and import actions
 
-- Clicking a tile toggles it; Shift-click toggles a range. ⌥⌘A selects all visible new photos, and ⇧⌘A deselects visible photos.
+- Clicking a tile toggles it; Shift-click toggles a range. The 2026-10-25 selection refinement adds Select All, Select All New, and Deselect All buttons. ⌘A in the grid selects every visible photo, including imported and undated groups. ⌥⌘A selects only visible new photos with usable dates. Both replace the prior selection. ⇧⌘A clears the entire selection, including hidden photos. Text-field ⌘A retains normal text editing. Imported groups may be selected and are re-verified before being skipped, without forcing another copy. Undated new groups still need an explicit fallback date before import.
 - **Import N Selected** imports exactly the selected photos that the current filters show. The footer reports selected photos hidden by filters, which will not be imported.
 - **Import All New (N)** imports every new dated photo regardless of filters. Undated new photos are excluded and the status line says so, until the user chooses a fallback date.
 - Changing structure, event name, or fallback date recomputes folders without rereading files. Changing destination or source cancels any scan and rescans. Results from an obsolete scan are discarded. Import requires a preview matching the current source, destination, structure, event, and fallback.

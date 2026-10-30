@@ -36,10 +36,18 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     var settings: Settings
     let helper: MetadataHelper?
     let thumbnails = ThumbnailLoader()
+    var verificationCacheDirectory: URL {
+        if let override = Settings.overrideDirectory { return override.appendingPathComponent("VerificationCache", isDirectory: true) }
+        return FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Andermic Photo Importer/DuplicateVerification", isDirectory: true)
+    }
     var notices: NoticesWindow?
 
     // Source and scan state
     var cards: [URL] = []
+    weak var cameraMonitor: CameraMonitor?
+    var cameras: [CameraImportSource] = []
+    var cameraSnapshot: CameraSnapshot?
     var newlyAvailable = Set<URL>()
     var source: URL?
     var plan: ImportPlan?
@@ -75,6 +83,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     let statusLabel = NSTextField(labelWithString: "")
     let selectionLabel = NSTextField(labelWithString: "")
     let cancelButton = NSButton(title: "Stop", target: nil, action: nil)
+    let selectAllButton = NSButton(title: "Select All", target: nil, action: nil)
+    let selectAllNewButton = NSButton(title: "Select All New", target: nil, action: nil)
+    let deselectAllButton = NSButton(title: "Deselect All", target: nil, action: nil)
     let importAllButton = NSButton(title: "Import All New", target: nil, action: nil)
     let importSelectedButton = NSButton(title: "Import Selected", target: nil, action: nil)
     // Inspector
@@ -114,6 +125,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         if !window.setFrameUsingName("MainWindow") { window.center() }
         loadInspector()
         refresh()
+        let cacheDirectory = verificationCacheDirectory
+        DispatchQueue.global(qos: .utility).async { DuplicateVerificationCache(directory: cacheDirectory).save() }
     }
     required init?(coder: NSCoder) { fatalError() }
 
@@ -178,7 +191,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         let choose = NSButton(title: "Choose Folder…", target: self, action: #selector(chooseSource))
         choose.image = NSImage(systemSymbolName: "folder.badge.plus", accessibilityDescription: nil); choose.imagePosition = .imageLeading
         choose.bezelStyle = .rounded; choose.controlSize = .regular
-        let hint = small("Insert a camera card, choose a folder, or drop a folder on the grid.")
+        let hint = small("Connect a USB camera, insert a card, or choose a folder.")
         let footer = NSStackView(views: [choose, hint]); footer.orientation = .vertical; footer.alignment = .leading; footer.spacing = 8
         let view = NSView()
         for item in [scroll, footer] as [NSView] { item.translatesAutoresizingMaskIntoConstraints = false; view.addSubview(item) }
@@ -197,6 +210,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         titleLabel.font = .systemFont(ofSize: 18, weight: .semibold); titleLabel.lineBreakMode = .byTruncatingMiddle
         countsLabel.font = .systemFont(ofSize: 12); countsLabel.textColor = .secondaryLabelColor
         countsLabel.lineBreakMode = .byTruncatingTail
+        countsLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         datePopup.target = self; datePopup.action = #selector(filtersChanged); datePopup.controlSize = .small
         datePopup.setAccessibilityLabel("Filter by capture date")
         typePopup.addItems(withTitles: TypeFilter.allCases.map(\.title)); typePopup.target = self; typePopup.action = #selector(filtersChanged)
@@ -209,20 +223,31 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         let largeIcon = NSImageView(image: NSImage(systemSymbolName: "photo", accessibilityDescription: nil)!.withSymbolConfiguration(.init(pointSize: 15, weight: .regular))!)
         for icon in [smallIcon, largeIcon] { icon.contentTintColor = .secondaryLabelColor }
         let titles = NSStackView(views: [titleLabel, countsLabel]); titles.orientation = .vertical; titles.alignment = .leading; titles.spacing = 2
+        titles.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        selectAllButton.target = self; selectAllButton.action = #selector(selectAll(_:))
+        selectAllNewButton.target = self; selectAllNewButton.action = #selector(selectAllNew(_:))
+        deselectAllButton.target = self; deselectAllButton.action = #selector(deselectAll(_:))
+        selectAllButton.toolTip = "Select every photo matching the current filters, including already imported photos. Existing copies are reverified when importing."
+        selectAllNewButton.toolTip = "Select only new, dated photos matching the current filters."
+        deselectAllButton.toolTip = "Clear the entire photo selection, including photos hidden by filters."
+        for button in [selectAllButton, selectAllNewButton, deselectAllButton] { button.bezelStyle = .rounded; button.controlSize = .small }
+        let selectionActions = NSStackView(views: [selectAllButton, selectAllNewButton, deselectAllButton]); selectionActions.spacing = 6
+        let titleRow = NSStackView(views: [titles, NSView(), selectionActions]); titleRow.spacing = 12; titleRow.alignment = .centerY
         let filters = NSStackView(views: [datePopup, typePopup, showImported, NSView(), smallIcon, sizeSlider, largeIcon])
         filters.spacing = 10; filters.alignment = .centerY
-        let header = NSStackView(views: [titles, filters]); header.orientation = .vertical; header.alignment = .leading; header.spacing = 10
+        let header = NSStackView(views: [titleRow, filters]); header.orientation = .vertical; header.alignment = .leading; header.spacing = 10
         filters.translatesAutoresizingMaskIntoConstraints = false
 
         let layout = NSCollectionViewFlowLayout()
         layout.minimumInteritemSpacing = 14; layout.minimumLineSpacing = 18
         layout.sectionInset = NSEdgeInsets(top: 6, left: 20, bottom: 22, right: 20)
         layout.headerReferenceSize = NSSize(width: 0, height: 34)
+        collection.wantsLayer = true
         collection.collectionViewLayout = layout
         collection.dataSource = self; collection.delegate = self
         collection.isSelectable = false
-        collection.onSelectAll = { [weak self] in self?.selectAllNew(nil) }
-        collection.backgroundColors = [.clear]
+        collection.onSelectAll = { [weak self] in self?.selectAll(nil) }
+        collection.backgroundColors = [.windowBackgroundColor]
         collection.register(GroupTileItem.self, forItemWithIdentifier: GroupTileItem.identifier)
         collection.register(SectionHeader.self, forSupplementaryViewOfKind: NSCollectionView.elementKindSectionHeader, withIdentifier: SectionHeader.identifier)
         collection.setAccessibilityLabel("Photos to import")
@@ -253,6 +278,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         NSLayoutConstraint.activate([
             header.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 14),
             header.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20), header.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
+            titleRow.widthAnchor.constraint(equalTo: header.widthAnchor),
             filters.widthAnchor.constraint(equalTo: header.widthAnchor),
             topRule.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 10),
             topRule.leadingAnchor.constraint(equalTo: view.leadingAnchor), topRule.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -516,9 +542,33 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
 
     // MARK: Sources
 
+    func camerasChanged(_ list: [CameraImportSource], inserted: CameraImportSource?) {
+        cameras = list
+        // USB transfers need local space for every supported original. Keep them an
+        // explicit selection even when mounted-card background scanning is enabled.
+        if let inserted {
+            newlyAvailable.insert(inserted.url)
+            status("Camera “\(inserted.name)” is available. Select it to read its originals for preview.")
+        }
+        sidebar.reloadData(); selectSidebarRow(); refresh(); onStateChange?()
+    }
+
+    func cameraRemoved(_ camera: CameraImportSource) {
+        newlyAvailable.remove(camera.url)
+        guard source == camera.url else { return }
+        scanToken?.cancel(); importToken?.cancel(); scanGeneration += 1
+        if state == .scanning { state = .idle; progressBar.stopAnimation(nil) }
+        thumbnails.cancelAll()
+        source = nil; plan = nil; preliminary = nil; selection = []; cameraSnapshot = nil
+        fallbackCheck.state = .off
+        status("The camera was disconnected. Verified destination copies are kept. Reconnect it and scan again.")
+    }
+
+    var scanSource: URL? { cameraSnapshot?.directory ?? source }
+
     func cardsChanged(_ list: [URL], inserted: URL?) {
         cards = list
-        newlyAvailable = newlyAvailable.filter { list.contains($0) }
+        newlyAvailable = newlyAvailable.filter { url in list.contains(url) || cameras.contains(where: { $0.url == url }) }
         sidebar.reloadData(); selectSidebarRow()
         if let card = inserted {
             if settings.cardInsertion != .indicate && state == .idle {
@@ -554,7 +604,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     var sidebarRows: [(title: String, url: URL?, icon: String, header: Bool)] {
         var rows: [(String, URL?, String, Bool)] = [("CARDS", nil, "", true)]
         rows += cards.isEmpty ? [("No cards detected", nil, "sdcard", false)] : cards.map { ($0.lastPathComponent, $0, "sdcard", false) }
-        if let source, !cards.contains(source) { rows += [("FOLDER", nil, "", true), (source.lastPathComponent, source, "folder", false)] }
+        rows += [("CAMERAS", nil, "", true)]
+        rows += cameras.isEmpty ? [("No USB cameras detected", nil, "camera", false)] : cameras.map { ($0.name, $0.url, "camera", false) }
+        if let source, source.isFileURL, !cards.contains(source) { rows += [("FOLDER", nil, "", true), (source.lastPathComponent, source, "folder", false)] }
         return rows
     }
     func numberOfRows(in tableView: NSTableView) -> Int { sidebarRows.count }
@@ -606,7 +658,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
 
     func setSource(_ url: URL, scan: Bool) {
         guard state != .importing else { status("An import is in progress. Choose another source when it finishes."); return }
-        let standardized = url.standardizedFileURL
+        let standardized = url.isFileURL ? url.standardizedFileURL : url
+        scanToken?.cancel()
+        thumbnails.cancelAll(); cameraSnapshot = nil
         source = cards.first { $0.standardizedFileURL.path == standardized.path } ?? standardized
         newlyAvailable.remove(source!)
         plan = nil; preliminary = nil; selection = []; dateFilter = nil
@@ -623,7 +677,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
 
     @objc func rescan() { if source != nil, state != .importing { startScan() } }
 
-    func startScan() {
+    @objc func fullVerification() {
+        if source != nil, state != .importing { startScan(reuseCachedHashes: false) }
+    }
+
+    func startScan(reuseCachedHashes: Bool = true) {
         guard let source, state != .importing else { return }
         guard let helper else { showError(ImportError("The app's built-in metadata reader is missing. Reinstall Andermic Photo Importer.")); return }
         scanToken?.cancel()
@@ -631,6 +689,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         let generation = scanGeneration, token = Cancellation()
         scanToken = token
         thumbnails.cancelAll()
+        cameraSnapshot = nil
         plan = nil; preliminary = nil; selection = []; anchor = nil
         state = .scanning; scanStarted = Date()
         progressBar.isIndeterminate = true; progressBar.startAnimation(nil)
@@ -641,18 +700,41 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
             snapshot.folderTemplate = Settings.defaultTemplate
         }
         let event = self.event, fallback = self.fallback
+        let scanSettings = snapshot
+        let cacheDirectory = verificationCacheDirectory
         refresh(); onStateChange?()
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        let scan: (CameraSnapshot?) -> Void = { [weak self] snapshot in
+          guard let self, generation == self.scanGeneration, !token.isCancelled else { return }
+          self.cameraSnapshot = snapshot
+          let input = snapshot?.directory ?? source
+          DispatchQueue.global(qos: .userInitiated).async { [weak self, snapshot] in
             do {
-                let value = try Importer.plan(source: source, settings: snapshot, event: snapshot.folderTemplate.contains("{event}") ? event : "", fallback: fallback,
+                var value = try Importer.plan(source: input, settings: scanSettings, event: scanSettings.folderTemplate.contains("{event}") ? event : "", fallback: fallback,
                                               helper: helper, cancellation: token,
+                                              verificationCache: DuplicateVerificationCache(directory: cacheDirectory), reuseCachedHashes: reuseCachedHashes,
                                               progress: { update in DispatchQueue.main.async { self?.scanProgress(update, generation) } },
                                               discovered: { groups in DispatchQueue.main.async { self?.discovered(groups, generation) } })
+                if let snapshot {
+                    value.sourceDescription = source.absoluteString
+                    value.sourceFileDescriptions = snapshot.origins
+                    for index in value.files.indices { value.files[index].digest = snapshot.hashes[value.files[index].source.path] }
+                }
                 DispatchQueue.main.async { self?.scanFinished(value, generation) }
             } catch {
                 DispatchQueue.main.async { self?.scanFailed(error, generation, token) }
             }
+          }
         }
+        if let camera = cameras.first(where: { $0.url == source }) {
+            camera.prepare(cancellation: token, progress: { [weak self] update in
+                DispatchQueue.main.async { self?.scanProgress(update, generation) }
+            }, completion: { [weak self] result in
+                switch result {
+                case .success(let snapshot): scan(snapshot)
+                case .failure(let error): self?.scanFailed(error, generation, token)
+                }
+            })
+        } else { scan(nil) }
     }
 
     func scanProgress(_ update: ImportProgress, _ generation: Int) {
@@ -667,18 +749,24 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     }
     func scanFinished(_ value: ImportPlan, _ generation: Int) {
         // A result from an obsolete scan can never enable an import.
-        guard generation == scanGeneration, value.source == source, value.root.path == URL(fileURLWithPath: settings.destination).standardizedFileURL.path else { return }
+        guard generation == scanGeneration, value.source == scanSource, value.root.path == URL(fileURLWithPath: settings.destination).standardizedFileURL.path else { return }
         plan = value; preliminary = nil
         state = .idle; progressBar.stopAnimation(nil)
-        reorganize()
+        organizeError = nil
+        do { plan = try value.organized(template: settings.folderTemplate, event: event, fallback: fallback) }
+        catch { organizeError = error.localizedDescription }
         selection = plan?.importableNewGroups ?? []
         sidebar.reloadData(); selectSidebarRow()
         let elapsed = Date().timeIntervalSince(scanStarted)
         let reads = value.scanReads
         status(String(format: "Scanned in %.1f s · %@ read to check %@ of photos.", elapsed,
                       ByteCountFormatter.string(fromByteCount: Int64(reads.total), countStyle: .file),
-                      ByteCountFormatter.string(fromByteCount: Int64(value.files.reduce(0) { $0 + $1.size }), countStyle: .file)))
-        refresh(); onStateChange?()
+                      ByteCountFormatter.string(fromByteCount: Int64(value.files.reduce(0) { $0 + $1.size }), countStyle: .file))
+               + (value.cachedGroups > 0 ? " \(value.cachedGroups) cached matches; full contents are rechecked during import. File > Full Verification bypasses the cache." : ""))
+        refresh()
+        gridScroll.contentView.scroll(to: .zero)
+        gridScroll.reflectScrolledClipView(gridScroll.contentView)
+        onStateChange?()
     }
     func scanFailed(_ error: Error, _ generation: Int, _ token: Cancellation) {
         guard generation == scanGeneration else { return }
@@ -700,18 +788,23 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
                 if showImported.state == .off && !(group.isNew || group.status == .sidecarChanged) { return false }
                 return true
             }
+            var displayedDates: [CaptureDay: String] = [:]
+            func dateLabel(_ day: CaptureDay) -> String {
+                if let cached = displayedDates[day] { return cached }
+                let text = Self.display(day); displayedDates[day] = text; return text
+            }
             func entry(_ group: PhotoGroup) -> GridEntry {
                 let members = plan.members(group)
                 let primaries = members.filter { $0.role != .sidecar }
                 let sidecars = members.filter { $0.role == .sidecar }.map { $0.source.pathExtension.uppercased() }
                 let kinds = primaries.map { $0.source.pathExtension.uppercased() }.joined(separator: " + ") + (sidecars.isEmpty ? "" : " · " + sidecars.joined(separator: " "))
-                let date = group.date.map(Self.display) ?? "No capture date"
+                let date = group.date.map(dateLabel) ?? "No capture date"
                 let files = members.count == 1 ? "1 file" : "\(members.count) files"
                 let destination = group.folder.map { "\(plan.root.lastPathComponent)/\($0)/" }
                 let thumbnail = primaries.first { $0.role == .image }?.source ?? primaries[0].source
                 return GridEntry(id: group.id, name: group.name, thumbnail: thumbnail, kinds: kinds, fileCount: members.count,
                                  detail: "\(date) · \(files)", status: group.status, missingDate: plan.missingDates(in: [group.id]) > 0, destination: destination,
-                                 dateOrigin: group.date == nil ? nil : group.dateOrigin)
+                                 dateOrigin: group.date == nil ? nil : group.dateOrigin, cachedVerification: members.contains(where: \.cachedVerification))
             }
             let fresh = visible.filter(\.isNew).map(entry)
             let other = visible.filter { !$0.isNew }.map(entry)
@@ -775,7 +868,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     var visibleIDs: [Int] { sections.flatMap { $0.entries.filter(\.selectable).map(\.id) } }
 
     func toggle(_ id: Int, _ flags: NSEvent.ModifierFlags) {
-        guard let plan, state == .idle, plan.groups[id].status != .imported else { return }
+        guard let plan, state == .idle, plan.groups.indices.contains(id) else { return }
         let order = visibleIDs
         if flags.contains(.shift), let anchor, let from = order.firstIndex(of: anchor), let to = order.firstIndex(of: id) {
             let range = order[min(from, to)...max(from, to)]
@@ -793,9 +886,19 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         }
     }
 
-    @objc func selectAllNew(_ sender: Any?) { guard plan != nil, state == .idle else { return }; selection.formUnion(visibleIDs.filter { plan!.importableNewGroups.contains($0) }); updateTiles(); updateFooter() }
-    @objc func deselectAll(_ sender: Any?) { guard state == .idle else { return }; selection.subtract(visibleIDs); updateTiles(); updateFooter() }
-    @objc override func selectAll(_ sender: Any?) { selectAllNew(sender) }
+    @objc func selectAllNew(_ sender: Any?) {
+        guard let plan, state == .idle else { return }
+        selection = Set(visibleIDs).intersection(plan.importableNewGroups); anchor = nil
+        updateTiles(); updateFooter()
+    }
+    @objc func deselectAll(_ sender: Any?) {
+        guard state == .idle else { return }
+        selection = []; anchor = nil; updateTiles(); updateFooter()
+    }
+    @objc override func selectAll(_ sender: Any?) {
+        guard plan != nil, state == .idle else { return }
+        selection = Set(visibleIDs); anchor = nil; updateTiles(); updateFooter()
+    }
 
     @objc func filtersChanged() {
         typeFilter = TypeFilter(rawValue: typePopup.indexOfSelectedItem) ?? .all
@@ -829,7 +932,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         guard window != nil else { return }
         rebuildDateFilter()
         sections = entries().map { (title: $0.0, detail: $0.1, entries: $0.2) }
-        collection.reloadData()
+        // Transition from preliminary to verified groups atomically. Layer-backed
+        // tiles/headers own their text, so reused content cannot leave old glyphs.
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0; context.allowsImplicitAnimation = false
+            collection.collectionViewLayout?.invalidateLayout()
+            collection.reloadData()
+            collection.layoutSubtreeIfNeeded()
+        }
+        collection.needsDisplay = true
         let filtersEnabled = plan != nil && state == .idle
         for control in [datePopup, typePopup, showImported, sizeSlider] as [NSControl] { control.isEnabled = filtersEnabled || control === sizeSlider }
 
@@ -839,11 +950,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
             let newGroups = plan.newGroups.count
             countsLabel.stringValue = "\(plan.groups.count) photos (\(plan.files.count) files) · \(newGroups) new · \(imported) already imported"
                 + { let other = plan.ignored + plan.orphanSidecars.count; return other == 0 ? "" : " · \(other) other \(other == 1 ? "file" : "files") not imported" }()
+                + (plan.cachedGroups > 0 ? " · \(plan.cachedGroups) cached matches" : "")
         } else if let preliminary {
             countsLabel.stringValue = "\(preliminary.count) photos found · checking dates and duplicates…"
         } else {
             countsLabel.stringValue = source == nil ? "Insert a camera card or choose a folder to see its photos." : ""
         }
+        countsLabel.toolTip = countsLabel.stringValue
         if source == nil {
             emptyState.stringValue = "Insert a camera card, or choose a folder of photos.\nNothing is copied until you choose an import button."
         } else if state == .scanning && sections.isEmpty {
@@ -909,14 +1022,17 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     var needsFallback: Bool { plan.map { plan in plan.groups.contains { $0.status != .imported && plan.missingDates(in: [$0.id]) > 0 } } ?? false }
 
     var planIsCurrent: Bool {
-        guard let plan, let source, organizeError == nil else { return false }
-        return plan.source == source && plan.root.path == URL(fileURLWithPath: settings.destination).standardizedFileURL.path
+        guard let plan, source != nil, organizeError == nil else { return false }
+        return plan.source == scanSource && plan.root.path == URL(fileURLWithPath: settings.destination).standardizedFileURL.path
             && plan.settings.folderTemplate == settings.folderTemplate && plan.fallback == fallback
             && (plan.event == event || !settings.folderTemplate.contains("{event}"))
     }
 
     func updateFooter() {
         let idle = state == .idle
+        selectAllButton.isEnabled = idle && plan != nil && !visibleIDs.isEmpty
+        selectAllNewButton.isEnabled = idle && plan != nil && !visibleIDs.filter { plan!.importableNewGroups.contains($0) }.isEmpty
+        deselectAllButton.isEnabled = idle && !selection.isEmpty
         cancelButton.isHidden = idle
         progressBar.isHidden = idle
         if state != .idle { progressBar.startAnimation(nil) } else { progressBar.stopAnimation(nil) }
@@ -970,9 +1086,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         status("Preparing to import \(groups.count) photos…")
         refresh(); sidebar.reloadData(); selectSidebarRow(); onStateChange?()
         let snapshot = settings
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        let retainedSnapshot = cameraSnapshot
+        let cacheDirectory = verificationCacheDirectory
+        DispatchQueue.global(qos: .userInitiated).async { [weak self, retainedSnapshot] in
+            defer { withExtendedLifetime(retainedSnapshot) {} }
             do {
-                let result = try Importer.run(plan, selection: groups, cancellation: token, progress: { update in
+                let result = try Importer.run(plan, selection: groups, cancellation: token, verificationCache: DuplicateVerificationCache(directory: cacheDirectory), progress: { update in
                     DispatchQueue.main.async {
                         self?.status(update.text)
                         if let fraction = update.fraction { self?.progressBar.doubleValue = fraction }
@@ -986,9 +1105,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     }
 
     func importFinished(_ result: ImportResult, plan: ImportPlan, settings snapshot: Settings, volume: URL?) {
-        self.plan = plan.applying(result.outcomes)
-        selection = self.plan!.newGroups.intersection(selection)
-        thumbnails.concurrency = 3
+        if scanSource == plan.source {
+            self.plan = plan.applying(result.outcomes)
+            selection = self.plan!.newGroups.intersection(selection)
+        } else { self.plan = nil; selection = [] }
+        thumbnails.concurrency = ThumbnailLoader.defaultConcurrency
         var detail = "\(result.copied) new \(result.copied == 1 ? "file" : "files") copied and verified from \(result.groups) \(result.groups == 1 ? "photo" : "photos")."
         if result.skipped > 0 { detail += " \(result.skipped) already present and verified." }
         if !result.notes.isEmpty { detail += "\n\n" + result.notes.joined(separator: "\n") }
@@ -1003,7 +1124,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         }
         status("Import complete: \(result.copied) copied and verified.")
         // Never eject a card that still holds new photos the user has not imported.
-        let remaining = self.plan!.newGroups.count
+        let remaining = self.plan?.newGroups.count ?? plan.newGroups.count
         if snapshot.eject, volume != nil, remaining > 0 {
             detail += "\n\nThe card was not ejected because \(remaining) new \(remaining == 1 ? "photo remains" : "photos remain") on it."
         }
@@ -1026,8 +1147,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     }
 
     func importFailed(_ error: Error, plan: ImportPlan, groups: Set<Int>) {
-        state = .idle; thumbnails.concurrency = 3
-        if let failure = error as? ImportFailure, source == plan.source {
+        state = .idle; thumbnails.concurrency = ThumbnailLoader.defaultConcurrency
+        if let failure = error as? ImportFailure, scanSource == plan.source {
             self.plan = plan.applying(failure.outcomes)
             selection = self.plan!.newGroups.intersection(groups.union(selection))
         }

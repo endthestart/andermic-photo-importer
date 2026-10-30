@@ -15,8 +15,12 @@ rm -rf "$root" "$screens"; mkdir -p "$root/run" "$root/Library" "$root/Settings"
 
 # Test-only app: the shipped bundle with an executable that also contains the driver.
 ditto "dist/Andermic Photo Importer.app" "$app"
+# TCC tracks the bundle identity and signature. Test binaries must not replace
+# the installed app's privacy identity when their ad hoc code hashes change.
+/usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier net.andermic.photoimporter.ui-exercise' "$app/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c 'Set :CFBundleDisplayName Andermic Photo Importer UI Tests' "$app/Contents/Info.plist"
 xcrun swiftc -swift-version 5 -O -D UI_AUTOMATION -module-cache-path build/module-cache Source/Core/*.swift Source/App/*.swift -o "$app/Contents/MacOS/PhotoImport"
-codesign --force --sign - "$app"
+codesign --force --sign - --entitlements scripts/camera.entitlements "$app"
 
 # Fixtures: a 26-photo folder card, a large card for cancellation, and a DMG card for insertion.
 xcrun swiftc -module-cache-path build/module-cache scripts/make-synthetic-card.swift -o "$root/make-card" 2>/dev/null
@@ -53,11 +57,68 @@ wait 2
 snap 01-preview
 state preview
 expect fallbackVisible true
-# The grid's Select All (via the Edit menu and responder chain) selects every new dated photo.
+# Stress the same late scan-to-filtered-preview transition as a large RAW card.
+gridStressStart
+wait 1
+snap 00-large-scanning-grid
+gridStressFinish
+wait 1
+expect groups 754
+expect selected 58
+gridIntegrity
+snap 00-large-finished-grid
+check Show Imported
+wait 0.5
+check Show Imported
+wait 0.5
+check Show Imported
+wait 0.5
+check Show Imported
+wait 0.5
+gridIntegrity
+check Show Imported
+click Select All
+expect selected 754
+click Select All New
+expect selected 58
+click Select All
+expect selected 754
+check Show Imported
+expect selected 58
+click Deselect All
+expect selected 0
+check Show Imported
+expect selected 0
+click Select All New
+expect selected 58
+check Show Imported
+snap 00-large-selection-buttons
+compact
+wait 0.5
+gridIntegrity
+snap 00-compact-selection-buttons
+wide
+wait 0.5
+gridStressRestore
+wait 0.5
+expect groups 26
+click Deselect All
+expect selected 0
+click Select All New
+expect selected 23
+# All/New/None differ: All includes imported and undated groups, New does not.
+click Select All
+expect selected 26
+expect importSelected Import 26 Selected|false
+click Select All New
+expect selected 23
+# Standard Select All follows the same semantics, while text fields retain Cmd-A.
 menu Deselect All Photos
 expect selected 0
 focus grid
 menu Select All
+expect selected 26
+menu Select All New Photos
 expect selected 23
 toggle DSC_0002
 toggle DSC_0004
@@ -117,6 +178,30 @@ waitIdle
 expect status DSC_0006=imported
 expect status MVI_0026=imported
 state after-sidecars
+# Warm previews are visibly cached; Full Verification performs complete reads.
+rescan
+waitIdle
+expect cachedGroups 26
+expect cacheSavings true
+wait 1
+snap 07-cached-matches
+menu Full Verification
+waitIdle
+expect cachedGroups 0
+expect fullRead true
+rescan
+waitIdle
+expect cachedGroups 26
+expect cacheSavings true
+# Selecting already-imported groups re-verifies them without making more copies.
+click Select All
+expect selected 26
+click Import 26 Selected
+waitModal
+alert
+click Done
+waitIdle
+expect selected 0
 # 2c. Standard menu commands route through the responder chain.
 focus event
 editing Lisbon Trip
@@ -198,6 +283,31 @@ click Done
 waitIdle
 wait 2
 state after-eject
+# USB sources appear without automatic transfers, preview through a private
+# snapshot, reuse verified duplicates, and never enable volume ejection.
+camera $root/Card
+expect hasSource false
+shell usb-new
+cameraSelect
+waitIdle
+expect cameraSource true
+expect groups 27
+expect ejectEnabled false
+expect status DSC_0001=imported
+expect status DSC_0006=imported
+snap 12-usb-camera
+expect selected 1
+click Import 1 Selected
+waitModal
+alert
+click Done
+waitIdle
+rescan
+waitIdle
+expect status USB_0027=imported
+cameraRemove
+expect hasSource false
+expect groups 0
 # 5. Advanced options and third-party notices.
 advanced
 wait 1
@@ -244,6 +354,10 @@ while (( SECONDS < deadline )); do
                 printf '<x:xmpmeta><rating>1</rating> changed on the card</x:xmpmeta>' > "$cards/DSC_0006.XMP"
                 printf 'changed thumbnail' > "$cards/MVI_0026.THM"
                 touch "$root/run/change-sidecars.done" ;;
+            "SHELL usb-new")
+                cp "$cards/DSC_0001.JPG" "$cards/USB_0027.JPG"
+                printf 'unique synthetic USB original' >> "$cards/USB_0027.JPG"
+                touch "$root/run/usb-new.done" ;;
             DONE) break 2 ;;
         esac
     done
@@ -302,6 +416,7 @@ for base, _, files in os.walk(os.path.join(root, 'Library')):
         if name.startswith('.') or 'Earlier import' in path or path.endswith('2026/09/12/DSC_0003.NEF'): continue
         assert sha(path) in sources, f'{path} does not match any source original'
         imported += 1
+assert imported == 89, f"Expected exactly 89 imported fixture files, found {imported}"
 assert not partial, partial
 pre = open(os.path.join(root, 'Library/2026/09/12/DSC_0003.NEF'), 'rb').read()
 assert pre == b'a different photo from another camera', 'existing file was modified'

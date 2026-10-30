@@ -43,6 +43,8 @@ jobs:
         run: ./scripts/build-metadata-helper.sh
       - name: Test importer safety
         run: ./test.sh
+      - name: Check bounded memory with synthetic data
+        run: ./scripts/performance-exercise.sh
       - name: Build development-signed app
         run: ./build.sh
       - name: Package and verify archive

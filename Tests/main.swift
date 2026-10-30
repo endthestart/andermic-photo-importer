@@ -481,4 +481,272 @@ if fm.fileExists(atPath: partialVerified.path) { try fm.removeItem(at: partialVe
 try fm.copyItem(at: collisionSource, to: perfLibrary.appendingPathComponent("renamed-duplicate.data"))
 let duplicatePlan = try plan(event: "Performance", fallback: fallback, source: perfCard, settings: perfSettings)
 try check(duplicatePlan.newCount == 11 && duplicatePlan.files.first(where: { $0.source == collisionSource })?.existing?.lastPathComponent == "renamed-duplicate.data", "large renamed duplicates remain detectable after sample filtering")
+// MARK: Read-only USB camera snapshots (synthetic transport)
+let cameraTemp = root.appendingPathComponent("CameraTemp")
+try fm.createDirectory(at: cameraTemp, withIntermediateDirectories: true)
+let cameraJPEG = try bytes(first)
+let cameraRAW = Data(repeating: 117, count: 4097)
+let cameraSidecar = Data("original sidecar".utf8)
+let cameraData = ["jpeg": cameraJPEG, "raw": cameraRAW, "sidecar": cameraSidecar, "slot2": cameraJPEG]
+let cameraCatalogItems: [String: CameraCatalogItem] = [
+    "slot-1": CameraCatalogItem(id: "slot-1", folder: true, name: "Card 1", children: ["dcim-1"]),
+    "dcim-1": CameraCatalogItem(id: "dcim-1", folder: true, name: "100NIKON", parent: "slot-1", children: ["raw", "jpeg", "sidecar"]),
+    "slot-2": CameraCatalogItem(id: "slot-2", folder: true, name: "Card 2"),
+    "dcim-2": CameraCatalogItem(id: "dcim-2", folder: true, name: "100NIKON", parent: "slot-2"),
+    "raw": CameraCatalogItem(id: "raw", folder: false, name: "DSC_0001.NEF", size: Int64(cameraRAW.count), parent: "dcim-1"),
+    "jpeg": CameraCatalogItem(id: "jpeg", folder: false, name: "DSC_0001.JPG", size: Int64(cameraJPEG.count), parent: "dcim-1"),
+    "sidecar": CameraCatalogItem(id: "sidecar", folder: false, name: "DSC_0001.XMP", size: Int64(cameraSidecar.count), parent: "dcim-1"),
+    "slot2": CameraCatalogItem(id: "slot2", folder: false, name: "DSC_0001.JPG", size: Int64(cameraJPEG.count), parent: "dcim-2")
+]
+let flatCameraCatalog = try CameraCatalog.collect(hierarchy: [], media: ["raw", "jpeg", "slot2"], items: cameraCatalogItems)
+try check(flatCameraCatalog.count == 3 && flatCameraCatalog[0].folders == flatCameraCatalog[1].folders && flatCameraCatalog[0].folders != flatCameraCatalog[2].folders,
+          "Z8-style empty hierarchy still finds media originals and preserves parent folders across slots")
+let cameraObjects = try CameraCatalog.collect(hierarchy: ["slot-1"], media: ["raw", "jpeg", "slot2", "raw"], items: cameraCatalogItems)
+try check(cameraObjects.count == 4 && Set(cameraObjects.map(\.id)).count == 4 && cameraObjects.contains { $0.id == "sidecar" },
+          "camera catalog merges hierarchy-only sidecars with flat media originals without duplicates")
+let inferredCameraCatalog: [String: CameraCatalogItem] = [
+    "root": CameraCatalogItem(id: "root", folder: true, name: "DCIM", children: ["file"]),
+    "file": CameraCatalogItem(id: "file", folder: false, name: "DSC_0001.NEF", size: 1)
+]
+try check(try CameraCatalog.collect(hierarchy: ["root"], media: ["file"], items: inferredCameraCatalog).first?.folders.count == 1,
+          "hierarchy-only parent relationships are retained when a file omits its parent link")
+var cyclicCameraCatalog = cameraCatalogItems
+cyclicCameraCatalog["slot-1"]!.parent = "dcim-1"
+try rejects("flat camera catalog refuses cyclic parent folders") { _ = try CameraCatalog.collect(hierarchy: [], media: ["raw"], items: cyclicCameraCatalog) }
+var incompleteCameraCatalog = cameraCatalogItems
+incompleteCameraCatalog.removeValue(forKey: "dcim-1")
+try rejects("flat camera catalog refuses missing parent folders") { _ = try CameraCatalog.collect(hierarchy: [], media: ["raw"], items: incompleteCameraCatalog) }
+var convertedCameraCatalog = cameraCatalogItems
+convertedCameraCatalog["raw"]!.originalName = "DSC_0001.HIF"
+try rejects("flat camera catalog refuses converted filenames") { _ = try CameraCatalog.collect(hierarchy: [], media: ["raw"], items: convertedCameraCatalog) }
+
+func cameraRead(_ object: CameraObject, _ offset: Int64, _ length: Int) throws -> Data {
+    let data = cameraData[object.id]!
+    // Deliberately short successful reads exercise offset advancement.
+    return data.subdata(in: Int(offset)..<min(Int(offset) + min(length, 257), data.count))
+}
+var cameraCopy: CameraSnapshot? = try CameraStaging.prepare(cameraObjects, camera: "camera://synthetic/Z8", cancellation: Cancellation(), temporaryRoot: cameraTemp, read: cameraRead, progress: { _ in })
+let cameraDirectory = cameraCopy!.directory
+try Importer.assertDirectory(cameraDirectory)
+let cameraTempAlias = root.appendingPathComponent("CameraTempAlias")
+try fm.createSymbolicLink(at: cameraTempAlias, withDestinationURL: cameraTemp)
+try rejects("USB staging refuses symlinked temporary roots without weakening source checks") {
+    _ = try CameraStaging.prepare(cameraObjects, camera: "camera://synthetic", cancellation: Cancellation(), temporaryRoot: cameraTempAlias, read: cameraRead, progress: { _ in })
+}
+try check(try cameraObjects.allSatisfy { object in
+    let path = (object.folders + [object.name]).reduce(cameraDirectory) { $0.appendingPathComponent($1) }
+    return try bytes(path) == cameraData[object.id] && Importer.digest(path, cancellation: cancellation).0 == cameraCopy!.hashes[path.path]
+}, "USB snapshot preserves every original byte and verifies transfer hashes after short reads")
+let (cameraGroups, cameraOrphans) = Grouping.group(cameraCopy!.hashes.keys.map { URL(fileURLWithPath: $0) })
+try check(cameraGroups.count == 2 && cameraGroups.contains { $0.members.count == 3 } && cameraOrphans.isEmpty, "USB RAW/JPEG/sidecars group together while repeated names across card slots stay separate")
+try check((try fm.attributesOfItem(atPath: cameraDirectory.path)[.posixPermissions] as? NSNumber)?.intValue == 0o700, "camera temporary originals are in a private directory")
+var usbSettings = Settings(); usbSettings.destination = root.appendingPathComponent("USB-Library").path
+try fm.createDirectory(atPath: usbSettings.destination, withIntermediateDirectories: true)
+var usbPlan = try plan(event: "", fallback: nil, source: cameraDirectory, settings: usbSettings)
+usbPlan.sourceDescription = "camera://synthetic/Z8"; usbPlan.sourceFileDescriptions = cameraCopy!.origins
+for i in usbPlan.files.indices { usbPlan.files[i].digest = cameraCopy!.hashes[usbPlan.files[i].source.path] }
+let usbResult = try run(usbPlan)
+try check(usbResult.copied == 3 && usbResult.skipped == 1, "USB snapshots use content-confirmed duplicates and safe related-file imports")
+let usbReport = try JSONSerialization.jsonObject(with: Data(contentsOf: usbResult.receipt)) as! [String: Any]
+try check(usbReport["source"] as? String == "camera://synthetic/Z8" && (usbReport["entries"] as! [[String: Any]]).allSatisfy { ($0["source"] as? String)?.hasPrefix("camera://synthetic/Z8/") == true }, "USB reports retain camera provenance instead of disposable temporary paths")
+let usbAgain = try run(usbPlan)
+try check(usbAgain.copied == 0 && usbAgain.skipped == 4, "USB repeat imports verify existing originals without copying again")
+// Even a fresh filesystem preview cannot bless a modified snapshot over its transport hash.
+let alteredUSB = usbPlan.files.first { $0.role == .raw }!.source
+try Data(repeating: 23, count: cameraRAW.count).write(to: alteredUSB)
+var alteredUSBPlan = try plan(event: "", fallback: nil, source: cameraDirectory, settings: usbSettings)
+for i in alteredUSBPlan.files.indices { alteredUSBPlan.files[i].digest = cameraCopy!.hashes[alteredUSBPlan.files[i].source.path] }
+try rejects("USB transfer hash rejects local snapshot tampering before publication") { _ = try run(alteredUSBPlan) }
+cameraCopy = nil
+try check(!fm.fileExists(atPath: cameraDirectory.path), "USB temporary originals are removed when their snapshot is released")
+func cameraFailure(_ title: String, objects: [CameraObject] = cameraObjects, token: Cancellation = Cancellation(), read: (CameraObject, Int64, Int) throws -> Data) throws {
+    try rejects(title) { _ = try CameraStaging.prepare(objects, camera: "camera://synthetic", cancellation: token, temporaryRoot: cameraTemp, read: read, progress: { _ in }) }
+    try check(try fm.contentsOfDirectory(atPath: cameraTemp.path).isEmpty, title + " cleans incomplete temporary copies")
+}
+try cameraFailure("USB premature end-of-file fails closed") { _, _, _ in Data() }
+try cameraFailure("USB oversized read fails closed") { _, _, count in Data(repeating: 0, count: count + 1) }
+try cameraFailure("USB disconnect fails closed") { object, offset, length in
+    if offset > 0 { throw ImportError("Synthetic disconnect") }
+    return try cameraRead(object, offset, length)
+}
+let usbCancel = Cancellation()
+try cameraFailure("USB cancellation fails closed", token: usbCancel) { object, offset, length in
+    usbCancel.cancel(); return try cameraRead(object, offset, length)
+}
+for badName in ["../escape.JPG", ".hidden.JPG", "bad:name.JPG", "a\\b.JPG"] {
+    let unsafe = CameraObject(id: "unsafe", folders: [], name: badName, size: 1)
+    try cameraFailure("USB rejects unsafe camera path " + badName, objects: [unsafe]) { _, _, _ in throw ImportError("Must not read invalid catalog") }
+}
+let ambiguous = cameraObjects + [CameraObject(id: "collision", folders: cameraObjects.first { $0.id == "jpeg" }!.folders.map { $0.uppercased() }, name: "dsc_0001.jpg", size: 1)]
+var invalidCatalogReads = 0
+try cameraFailure("USB rejects case-insensitive catalog collisions before transfer", objects: ambiguous) { _, _, _ in invalidCatalogReads += 1; return Data([0]) }
+try check(invalidCatalogReads == 0, "ambiguous USB catalog never requests original data")
+
+
+// Full-read verification remains mandatory in the cross-volume overlap path.
+let pairMetrics = ReadMetrics()
+let pairExpected = try Importer.digest(first, cancellation: Cancellation()).0
+let equalPair = try Importer.digestPair(first, first, cancellation: Cancellation(), metrics: pairMetrics)
+try check(equalPair.0 == pairExpected && equalPair.1 == pairExpected && pairMetrics.hashedBytes == UInt64(try Importer.info(first).st_size) * 2, "parallel verification reads and hashes both complete originals")
+let pairToken = Cancellation(); pairToken.cancel()
+try rejects("parallel verification responds to cancellation") { _ = try Importer.digestPair(first, second, cancellation: pairToken) }
+try rejects("parallel verification propagates a missing source") { _ = try Importer.digestPair(root.appendingPathComponent("missing-source"), first, cancellation: Cancellation()) }
+try rejects("parallel verification propagates a missing candidate") { _ = try Importer.digestPair(first, root.appendingPathComponent("missing-candidate"), cancellation: Cancellation()) }
+let firstCollision = perfLibrary.appendingPathComponent("a-parallel-sample-collision.NEF")
+try fm.copyItem(at: collisionTarget, to: firstCollision)
+let pairIndex = try LibraryIndex(root: perfLibrary, cancellation: Cancellation())
+var collisionHash: String?
+let forcedDevice = try Importer.info(collisionTarget).st_dev ^ 1
+let parallelCollision = try pairIndex.matches(source: collisionSource, size: UInt64(fixtureSize), fingerprint: sourceSample, hash: &collisionHash,
+    all: false, cancellation: Cancellation(), sourceDevice: forcedDevice)
+try check(!parallelCollision.contains(firstCollision) && !parallelCollision.contains(collisionTarget) && parallelCollision.contains { $0.lastPathComponent == "renamed-duplicate.data" }, "overlapped candidate hashing rejects sample collisions and still finds renamed exact originals")
+
+// MARK: Expiring preview verification hints (synthetic only)
+let cacheCard = root.appendingPathComponent("CacheCard"), cacheLibrary = root.appendingPathComponent("CacheLibrary")
+try fm.createDirectory(at: cacheCard, withIntermediateDirectories: true)
+try fm.createDirectory(at: cacheLibrary, withIntermediateDirectories: true)
+let cacheOriginal = cacheCard.appendingPathComponent("CACHE.JPG"), cacheTarget = cacheLibrary.appendingPathComponent("renamed-original.data")
+var cacheOriginalBytes = try bytes(first); cacheOriginalBytes.append(Data(repeating: 91, count: 1024 * 1024))
+try cacheOriginalBytes.write(to: cacheOriginal); try cacheOriginalBytes.write(to: cacheTarget)
+var cacheSettings = Settings(); cacheSettings.destination = cacheLibrary.path
+let hintsDirectory = root.appendingPathComponent("VerificationHints")
+let epoch = Date(timeIntervalSince1970: 2_000_000_000)
+var cacheNow = epoch
+func hints(_ directory: URL = hintsDirectory, entries: Int = DuplicateVerificationCache.maximumEntries, bytes: Int = DuplicateVerificationCache.maximumBytes) -> DuplicateVerificationCache {
+    DuplicateVerificationCache(directory: directory, clock: { cacheNow }, entryLimit: entries, byteLimit: bytes)
+}
+func cachedPlan(reuse: Bool = true) throws -> ImportPlan {
+    try Importer.plan(source: cacheCard, settings: cacheSettings, event: "", fallback: nil, helper: helper,
+                      cancellation: Cancellation(), verificationCache: hints(), reuseCachedHashes: reuse, progress: { _ in })
+}
+let coldHints = try cachedPlan()
+try check(coldHints.cachedGroups == 0 && coldHints.scanReads.hashedBytes == UInt64(cacheOriginalBytes.count * 2), "cold preview hashes both complete originals before seeding cache")
+let warmHints = try cachedPlan()
+try check(warmHints.cachedGroups == 1 && warmHints.newCount == 0 && warmHints.scanReads.hashedBytes == 0 && warmHints.scanReads.sampledBytes > 0, "persisted warm preview checks samples and recognizes renamed copies without full reads")
+try check(warmHints.scanReads.total < UInt64(cacheOriginalBytes.count), "warm duplicate scan reads less than one complete original")
+let fullHints = try cachedPlan(reuse: false)
+try check(fullHints.cachedGroups == 0 && fullHints.scanReads.hashedBytes == UInt64(cacheOriginalBytes.count * 2), "Full Verification bypasses warm hints and refreshes complete hashes")
+cacheNow = epoch.addingTimeInterval(29 * 24 * 60 * 60)
+try check(try cachedPlan().scanReads.hashedBytes == 0, "verified hashes remain usable for 29 days")
+cacheNow = epoch.addingTimeInterval(30 * 24 * 60 * 60)
+let expiredHints = try cachedPlan()
+try check(expiredHints.cachedGroups == 0 && expiredHints.scanReads.hashedBytes == UInt64(cacheOriginalBytes.count * 2), "30-day expiry forces complete verification even after recent cache hits")
+try check(try cachedPlan().scanReads.hashedBytes == 0, "fresh full verification renews the fixed expiry")
+cacheNow = epoch
+try check(hints().count == 0, "clock rollback discards future-dated verification hints")
+let freshHashes = try cachedPlan(reuse: false)
+let cacheSignature = try Importer.info(cacheOriginal), cacheSample = try Importer.fingerprint(cacheOriginal, cancellation: Cancellation()).0
+let cacheHash = try Importer.digest(cacheOriginal, cancellation: Cancellation()).0
+let cacheScope = DuplicateVerificationCache.namespace(root: cacheLibrary)!
+let signatureHints = hints(root.appendingPathComponent("IdentityHints"))
+func rememberSignature() { signatureHints.record(cacheOriginal, namespace: cacheScope, info: cacheSignature, sample: cacheSample, hash: cacheHash) }
+rememberSignature()
+try check(signatureHints.hash(for: cacheOriginal, namespace: cacheScope, info: cacheSignature, sample: cacheSample) == cacheHash, "cache matches complete stored file identity and sample")
+for field in ["device", "inode", "size", "mtime", "ctime", "birthtime"] {
+    rememberSignature(); var changed = cacheSignature
+    switch field {
+    case "device": changed.st_dev ^= 1
+    case "inode": changed.st_ino &+= 1
+    case "size": changed.st_size += 1
+    case "mtime": changed.st_mtimespec.tv_nsec += 1
+    case "ctime": changed.st_ctimespec.tv_nsec += 1
+    default: changed.st_birthtimespec.tv_nsec += 1
+    }
+    try check(signatureHints.hash(for: cacheOriginal, namespace: cacheScope, info: changed, sample: cacheSample) == nil, "changed \(field) invalidates verification hint")
+}
+rememberSignature()
+try check(signatureHints.hash(for: cacheOriginal, namespace: cacheScope, info: cacheSignature, sample: String(repeating: "0", count: 64)) == nil, "changed content samples invalidate verification hint")
+rememberSignature()
+try check(signatureHints.hash(for: cacheOriginal, namespace: "another-destination", info: cacheSignature, sample: cacheSample) == nil, "cache cannot cross destination roots")
+try check(signatureHints.hash(for: cacheTarget, namespace: cacheScope, info: cacheSignature, sample: cacheSample) == nil, "cache cannot cross file paths")
+rememberSignature(); signatureHints.save()
+let hintFileMode = try Importer.info(signatureHints.file).st_mode & 0o777
+try check(hintFileMode == 0o600 && (try Importer.info(signatureHints.file.deletingLastPathComponent()).st_mode & 0o777) == 0o700, "verification cache and directory have private permissions")
+cacheNow = epoch.addingTimeInterval(DuplicateVerificationCache.lifetime)
+let removedExpired = hints(root.appendingPathComponent("IdentityHints")); removedExpired.save()
+try check(removedExpired.count == 0 && hints(root.appendingPathComponent("IdentityHints")).count == 0, "loading and saving purges expired entries from disk")
+cacheNow = epoch
+let smallHints = hints(root.appendingPathComponent("SmallHints"), entries: 3)
+for n in 0..<8 {
+    cacheNow = epoch.addingTimeInterval(Double(n))
+    smallHints.record(cacheCard.appendingPathComponent("\(n).JPG"), namespace: cacheScope, info: cacheSignature, sample: cacheSample, hash: cacheHash)
+}
+smallHints.save()
+try check(smallHints.count <= 3 && hints(root.appendingPathComponent("SmallHints"), entries: 3).count <= 3, "entry-count cap bounds high-volume cache growth")
+try check(smallHints.hash(for: cacheCard.appendingPathComponent("7.JPG"), namespace: cacheScope, info: cacheSignature, sample: cacheSample) == cacheHash, "count eviction retains recently verified entries")
+let byteHints = hints(root.appendingPathComponent("ByteHints"), bytes: 1024)
+for n in 0..<10 { byteHints.record(cacheCard.appendingPathComponent("\(n).JPG"), namespace: cacheScope, info: cacheSignature, sample: cacheSample, hash: cacheHash) }
+byteHints.save()
+try check(try Importer.info(byteHints.file).st_size <= 1024 && byteHints.count < 10, "serialized byte cap independently bounds the cache")
+try Data(repeating: 0, count: 1025).write(to: byteHints.file)
+try check(hints(root.appendingPathComponent("ByteHints"), bytes: 1024).count == 0, "oversized cache falls back to a cold scan without an unbounded read")
+try Data("not JSON".utf8).write(to: signatureHints.file)
+try check(hints(root.appendingPathComponent("IdentityHints")).count == 0, "corrupt cache is disposable rather than an import error")
+let aliasDirectory = root.appendingPathComponent("CacheDirectoryAlias")
+try fm.createSymbolicLink(at: aliasDirectory, withDestinationURL: hintsDirectory)
+let aliasHints = hints(aliasDirectory); aliasHints.save()
+try check(aliasHints.count == 0, "cache refuses a symlinked working directory")
+let protectedFixture = root.appendingPathComponent("DoNotTouch.txt")
+try Data("keep these bytes".utf8).write(to: protectedFixture)
+let linkHintsDirectory = root.appendingPathComponent("LinkedHints")
+try fm.createDirectory(at: linkHintsDirectory, withIntermediateDirectories: true)
+try fm.createSymbolicLink(at: linkHintsDirectory.appendingPathComponent("verified-hashes-v1.json"), withDestinationURL: protectedFixture)
+let linkHints = hints(linkHintsDirectory); linkHints.save()
+try check(linkHints.count == 0 && (try bytes(protectedFixture)) == Data("keep these bytes".utf8), "cache never follows or writes through a linked cache file")
+
+// Every selected file is fully rechecked during import even if preview hints lie.
+cacheNow = epoch
+_ = try cachedPlan(reuse: false)
+let damagedDestination = try FileHandle(forWritingTo: cacheTarget)
+try damagedDestination.seek(toOffset: 128 * 1024); try damagedDestination.write(contentsOf: Data([42])); try damagedDestination.close()
+let unchangedSamples = try Importer.fingerprint(cacheTarget, cancellation: Cancellation()).0
+try check(unchangedSamples == cacheSample && (try Importer.digest(cacheTarget, cancellation: Cancellation()).0) != cacheHash, "cache adversary changes bytes outside sampled regions")
+let poisonedHints = hints()
+poisonedHints.record(cacheTarget, namespace: cacheScope, info: try Importer.info(cacheTarget), sample: unchangedSamples, hash: cacheHash)
+poisonedHints.save()
+let guessedMatch = try cachedPlan()
+try check(guessedMatch.newCount == 0 && guessedMatch.cachedGroups == 1, "preview labels even an adversarial stale-hash match as cached")
+let damagedBytes = try bytes(cacheTarget)
+let genuinelyNew = cacheCard.appendingPathComponent("NEW.JPG")
+var extraOriginal = cacheOriginalBytes; extraOriginal.append(99); try extraOriginal.write(to: genuinelyNew)
+let mixedPreview = try cachedPlan()
+try check(mixedPreview.cachedGroups == 1 && mixedPreview.importableNewGroups.count == 1, "mixed preview contains a cached skip and a genuinely new original")
+try rejects("cached matches outside Import All New selection cannot authorize completion or ejection") {
+    _ = try Importer.run(mixedPreview, selection: mixedPreview.importableNewGroups, cancellation: Cancellation(), reportDirectory: reports, verificationCache: hints(), progress: { _ in })
+}
+try check((try bytes(cacheTarget)) == damagedBytes && !fm.fileExists(atPath: cacheLibrary.appendingPathComponent("2025/05/18/NEW.JPG").path), "stale cached skip aborts before publishing any selected new original")
+try fm.removeItem(at: genuinelyNew)
+let rebuiltPreview = try cachedPlan(reuse: false)
+try check(rebuiltPreview.newCount == 1 && rebuiltPreview.cachedGroups == 0, "Full Verification corrects an incorrect cached destination match")
+let strictlyImported = try Importer.run(guessedMatch, cancellation: Cancellation(), reportDirectory: reports, verificationCache: hints(), progress: { _ in })
+try check(strictlyImported.copied == 1 && strictlyImported.skipped == 0 && (try bytes(cacheTarget)) == damagedBytes, "selected-file import independently rejects a cached destination skip and preserves different existing bytes")
+try check((try bytes(strictlyImported.outcomes[cacheOriginal.path]!)) == cacheOriginalBytes, "new copy from cached preview still matches source byte-for-byte")
+let afterImportHints = try cachedPlan()
+try check(afterImportHints.newCount == 0 && afterImportHints.cachedGroups == 1, "verified imports populate reusable preview hints")
+try fm.removeItem(at: hintsDirectory)
+let recordAfterImport = hints()
+let noCachePreview = try cachedPlan(reuse: false)
+// Keep only the now-current matching path; remove the damaged synthetic candidate.
+try fm.removeItem(at: cacheTarget)
+try fm.removeItem(at: hintsDirectory)
+let freshImportHints = hints()
+let strictRepeat = try Importer.run(noCachePreview, cancellation: Cancellation(), reportDirectory: reports, verificationCache: freshImportHints, progress: { _ in })
+try check(strictRepeat.copied == 0 && strictRepeat.skipped == 1 && (try cachedPlan().scanReads.hashedBytes) == 0, "a successful import seeds hashes without needing a separate full preview afterward")
+// Metadata changes invalidate a source hint even when the sampled bytes are equal.
+let modifiedSource = try FileHandle(forWritingTo: cacheOriginal)
+try modifiedSource.seek(toOffset: 128 * 1024); try modifiedSource.write(contentsOf: Data([33])); try modifiedSource.close()
+let changedSourcePreview = try cachedPlan()
+try check(changedSourcePreview.newCount == 1 && changedSourcePreview.scanReads.hashedBytes >= UInt64(cacheOriginalBytes.count), "unsampled source edits with changed attributes force a complete new hash")
+let falseSourceHints = hints()
+falseSourceHints.record(cacheOriginal, namespace: cacheScope, info: try Importer.info(cacheOriginal), sample: cacheSample, hash: cacheHash)
+falseSourceHints.save()
+let falseSourcePreview = try cachedPlan()
+try check(falseSourcePreview.newCount == 0 && falseSourcePreview.cachedGroups == 1, "adversarial cached source identity is visibly provisional")
+try rejects("import rejects stale cached source hashes even when samples agree") {
+    _ = try Importer.run(falseSourcePreview, cancellation: Cancellation(), reportDirectory: reports, verificationCache: hints(), progress: { _ in })
+}
+try check((try bytes(strictlyImported.outcomes[cacheOriginal.path]!)) == cacheOriginalBytes, "rejected stale source hint leaves verified originals untouched")
+try fm.removeItem(at: strictlyImported.outcomes[cacheOriginal.path]!)
+try check(try cachedPlan().files.first?.existing == nil, "deleting a cached destination cannot hide a missing copy")
+
 print("\(checks) checks passed. Fixtures removed; no real card or photo library was modified.")
