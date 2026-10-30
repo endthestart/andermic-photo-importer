@@ -82,6 +82,8 @@ Settings and import reports are local files in `~/Library/Application Support/Co
 ./scripts/verify-package.sh
 ```
 
+`./build.sh` reads `APP_VERSION` (default: the `VERSION` file), `BUILD_NUMBER` (default 1), and `SIGNING_IDENTITY` (default: ad hoc). Launching with `-CorvusSettingsDirectory <folder>` keeps settings, reports, and the verification cache in that folder; `-CorvusUIScript` drives only the UI-exercise build. `xcrun swiftc scripts/make-icon.swift -o build/make-icon && build/make-icon Assets/AppIcon.png` redraws the icon.
+
 Tests use disposable synthetic originals. Package verification checks signatures, architecture, license notices, checksums, and metadata reading from the extracted app with an empty environment. Packaging creates local development ZIPs; these are not the public source-release downloads.
 
 `./scripts/ui-exercise.sh` drives the GUI against synthetic cards with isolated settings and saves screenshots to `build/screens/`. It briefly brings test windows forward, runs editing checks through the system clipboard, and restores the clipboard afterwards. Physical keystrokes are ignored only by the automated test app so they cannot change its fixtures. Use it with real camera cards disconnected; it never imports from or ejects them.
