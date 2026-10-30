@@ -146,7 +146,7 @@ Measured on this Mac Pro with the current build (optimized, synthetic data):
 
 - **Branding:**
   - The app follows `docs/DESIGN-TOKENS.md` v1, shared with Pictor, and tests check the colour, radius and type tables against it.
-  - The rename is complete except the bundle ID (`net.andermic.photoimporter`), which waits on owner question 1.
+  - The rename is complete, including the bundle ID `com.senexapps.corvus`. The verification cache is adopted once, so the first scan after updating stays warm.
   - Historical docs (`VALIDATION.md`, `PERFORMANCE.md`, `DESIGN-DISCOVERY.md`, `research/`) keep the old name as a record.
 - **Contrast (WCAG):**
 
@@ -178,7 +178,7 @@ Measured on this Mac Pro with the current build (optimized, synthetic data):
 
 - **Next, in order:**
   1. Run the GUI exercise and the physical card reinsertion on the current build (both blocked by the locked screen), and refresh the README screenshots.
-  2. Switch the bundle ID once the domain is confirmed.
+  2. Install the renamed app in place of the old one (README, "Moving from Andermic Photo Importer").
   3. Push this branch and open a PR.
   4. Complete the qualification list in `docs/ROADMAP.md` (real-camera fixtures, older macOS, clean install, Developer ID and notarization).
   5. The USB remote-reader design from `docs/PERFORMANCE.md`.
@@ -189,7 +189,7 @@ Measured on this Mac Pro with the current build (optimized, synthetic data):
 
 Each comes with a recommendation; the PM sends them one at a time.
 
-1. **Bundle ID:** switch Corvus to `com.senexapps.corvus`, matching Pictor? Recommendation: yes, before any binary is distributed. The PM relayed that senexapps.com is registered; this needs the owner's own yes.
+1. **Bundle ID:** answered. The owner registered senexapps.com, and Corvus now uses `com.senexapps.corvus`, matching Pictor.
 2. **Push:** push `claude/corvus-pictor-design-0851ec` and open a PR to `main`? Recommendation: yes, after the GUI exercise passes.
 3. **Background scan heat:** (a) run scans the user didn't start (background card insertion, launch scans) at `.utility`; (b) confirm duplicates by comparing the two files byte for byte instead of hashing both, which avoids most SHA-256 work; (c) leave as is. Recommendation: first confirm whether the fans still spin with the current build, which has the cache; if they do, (a). (b) changes import safety and needs its own ADR.
 4. **Disk space in the main checkout:** delete `build/ui-exercise` (1.8 GB) and `build/module-cache` (299 MB), and keep or move to the NAS `build/installed-backup-20261005-185204` (60 MB)? Recommendation: delete the first two, move the backup.

@@ -14,7 +14,7 @@ app="$(pwd)/$verification/Corvus.app"
 /usr/bin/codesign --verify --deep --strict "$app"
 entitlements="$(/usr/bin/codesign -d --entitlements :- "$app" 2>/dev/null)"
 test "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.personal-information.photos-library' /dev/stdin <<<"$entitlements")" = true
-test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" = net.andermic.photoimporter
+test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" = com.senexapps.corvus
 test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")" = "${version%%-*}"
 test "$(/usr/libexec/PlistBuddy -c 'Print :LSUIElement' "$app/Contents/Info.plist")" = true
 test -s "$app/Contents/Resources/AppIcon.icns"

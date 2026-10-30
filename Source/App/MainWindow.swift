@@ -126,6 +126,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         loadInspector()
         refresh()
         let cacheDirectory = verificationCacheDirectory
+        if Settings.overrideDirectory == nil {
+            let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            DuplicateVerificationCache.adopt(from: caches.appendingPathComponent("Andermic Photo Importer/DuplicateVerification", isDirectory: true), into: cacheDirectory)
+        }
         DispatchQueue.global(qos: .utility).async { DuplicateVerificationCache(directory: cacheDirectory).save() }
     }
     required init?(coder: NSCoder) { fatalError() }

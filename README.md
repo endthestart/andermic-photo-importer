@@ -31,6 +31,8 @@ The first build downloads pinned, checksum-verified Perl and ExifTool sources an
 
 To update, quit the app, run `git pull --ff-only` and `./build.sh`, and replace the copy you actually launch. Check both `/Applications` and `~/Applications` if more than one copy exists; an older copy can otherwise keep opening from a Dock shortcut or Login Item. Closing the window leaves the app running in the menu bar, so choose Quit before replacement. Your destination, folder layout, presets, and reports stay in Application Support.
 
+**Moving from Andermic Photo Importer.** Corvus has a new name and bundle ID (`com.senexapps.corvus`), so macOS treats it as a new app. Quit the old app from its menu-bar icon, install `Corvus.app`, then delete `Andermic Photo Importer.app`. On first launch Corvus adopts the old settings, presets, and preview verification cache, and leaves the old folders and reports in place. macOS asks again for access to removable and network volumes and cameras, the window opens once at its default size, and a Login Item for the old app must be replaced with Corvus in System Settings.
+
 ## Use it
 
 1. Open the app. By default it starts in the menu bar without a window. Click its icon and choose **Show Corvus**. Nothing else needs to be installed: metadata reading is built in.

@@ -17,7 +17,7 @@ rm -rf "$root" "$screens"; mkdir -p "$root/run" "$root/Library" "$root/Settings"
 ditto "dist/Corvus.app" "$app"
 # TCC tracks the bundle identity and signature. Test binaries must not replace
 # the installed app's privacy identity when their ad hoc code hashes change.
-/usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier net.andermic.photoimporter.ui-exercise' "$app/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier com.senexapps.corvus.ui-exercise' "$app/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c 'Set :CFBundleDisplayName Corvus UI Tests' "$app/Contents/Info.plist"
 xcrun swiftc -swift-version 5 -O -D UI_AUTOMATION -module-cache-path build/module-cache Source/Core/*.swift Source/App/*.swift -o "$app/Contents/MacOS/corvus"
 codesign --force --sign - --entitlements scripts/camera.entitlements "$app"

@@ -42,6 +42,14 @@ final class DuplicateVerificationCache {
         load(); prune()
     }
 
+    /// Copies an earlier install's cache file once, so the first scan after a rename is not cold. The earlier file stays.
+    static func adopt(from previous: URL, into directory: URL) {
+        let name = "verified-hashes-v1.json", source = previous.appendingPathComponent(name), target = directory.appendingPathComponent(name)
+        guard !FileManager.default.fileExists(atPath: target.path), FileManager.default.fileExists(atPath: source.path) else { return }
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        try? FileManager.default.copyItem(at: source, to: target)
+    }
+
     /// Root identity prevents reuse across a replaced destination or another volume.
     static func namespace(root: URL) -> String? {
         guard let info = try? Importer.info(root), info.st_mode & S_IFMT == S_IFDIR else { return nil }

@@ -37,7 +37,7 @@ cat > "$app_path/Contents/Info.plist" <<PLIST
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>CFBundleExecutable</key><string>corvus</string>
-<key>CFBundleIdentifier</key><string>net.andermic.photoimporter</string>
+<key>CFBundleIdentifier</key><string>com.senexapps.corvus</string>
 <key>CFBundleName</key><string>Corvus</string>
 <key>CFBundleDisplayName</key><string>Corvus</string>
 <key>NSHumanReadableCopyright</key><string>© 2026 Michael Anderson · MIT</string>
