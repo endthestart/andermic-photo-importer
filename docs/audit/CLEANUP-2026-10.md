@@ -28,7 +28,7 @@ The audit kept no caches. The 3.8 GB scan fixtures, the coverage build, the idle
 
 ## 2. Dependencies
 
-- **Runtime:** system frameworks only, plus the pinned helper (`scripts/metadata-helper.lock`): Perl 5.44.0 and ExifTool 13.59, checksum-verified.
+- **Runtime:** system frameworks only, plus the pinned helper (`scripts/metadata-helper.lock`): Perl 5.44.0 and ExifTool 13.59 at audit time, checksum-verified.
 - **Perl:** 5.44.0 is the latest stable (cpan.org on 2026-10-30; 5.45.x is a development series).
 - **ExifTool:** **13.60 is available** (exiftool.org `ver.txt`). A bump needs its published SHA-256, updated notices and confirmation that it is a production release (owner question 5).
 - **No package manager or lockfile** beyond the helper lock. CI pins actions by full SHA (checkout v7.0.1, cache v6.1.0, upload-artifact v7.0.1).
@@ -191,9 +191,9 @@ Each comes with a recommendation; the PM sends them one at a time.
 
 1. **Bundle ID:** answered. The owner registered senexapps.com, and Corvus now uses `com.senexapps.corvus`, matching Pictor.
 2. **Push:** push `claude/corvus-pictor-design-0851ec` and open a PR to `main`? Recommendation: yes, after the GUI exercise passes.
-3. **Background scan heat:** (a) run scans the user didn't start (background card insertion, launch scans) at `.utility`; (b) confirm duplicates by comparing the two files byte for byte instead of hashing both, which avoids most SHA-256 work; (c) leave as is. Recommendation: first confirm whether the fans still spin with the current build, which has the cache; if they do, (a). (b) changes import safety and needs its own ADR.
+3. **Background scan heat:** handed over. The owner's Codex session (branch `codex/sd-card-metadata-cache`) is working on import performance, so this branch changes no scan code. The options below go to that work. (a) run scans the user didn't start (background card insertion, launch scans) at `.utility`; (b) confirm duplicates by comparing the two files byte for byte instead of hashing both, which avoids most SHA-256 work; (c) leave as is. Recommendation: first confirm whether the fans still spin with the current build, which has the cache; if they do, (a). (b) changes import safety and needs its own ADR.
 4. **Disk space in the main checkout:** delete `build/ui-exercise` (1.8 GB) and `build/module-cache` (299 MB), and keep or move to the NAS `build/installed-backup-20261005-185204` (60 MB)? Recommendation: delete the first two, move the backup.
-5. **ExifTool 13.59 → 13.60?** Recommendation: only if 13.60 is a production release, with its SHA-256 and notices updated.
+5. **ExifTool 13.59 → 13.60:** answered. The owner chose the upgrade. Both are development releases, and the latest production release (13.55) lacks 13.59's security update. 13.60 is pinned by the SHA-256 published on exiftool.org, whose download link points to SourceForge.
 6. **Delete the merged remote branches** `feature/core-first-release` and `feature/menu-bar-lifecycle`? Recommendation: yes.
 7. **Split `MainWindow.swift` and `ImportCore.swift`** to meet the 300-line rule, as a separate refactor after this branch lands? Recommendation: yes, one file per PR with the GUI exercise.
 8. **Formatter:** adopt `swift-format` (it ships with the toolchain, so no new dependency) with a config matching the house style, and enforce it in CI? Recommendation: yes, with the config agreed first.

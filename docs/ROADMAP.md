@@ -19,7 +19,7 @@ Status: core-first public release accepted on 2026-10-04 and implemented in deve
 - Menu-bar launch by default, optional foreground launch, and a shortcut to user-managed macOS Login Items. Closing the last window hides the Dock icon while keeping work running.
 - Configurable card-insertion behavior: scan in the background by default for new installations, show and scan, or indicate availability only. Existing preferences are preserved. Copying remains an explicit user action.
 - Simple destination comparison and current lightweight reporting; keep advanced history/recovery out of this milestone.
-- Self-contained metadata helper/runtime packaging (pinned Perl 5.44.0 and ExifTool 13.59) and visible open-source notices, with no separate installation required.
+- Self-contained metadata helper/runtime packaging (pinned Perl 5.44.0 and ExifTool 13.60) and visible open-source notices, with no separate installation required.
 - Preserve source files: no delete-after-import option in this release.
 - USB camera import through Image Capture with verified staging, bounded working memory, and a 30-day preview verification cache ([ADR-0008](decisions/0008-usb-camera-originals.md) to [ADR-0011](decisions/0011-expiring-preview-verification-cache.md)).
 
