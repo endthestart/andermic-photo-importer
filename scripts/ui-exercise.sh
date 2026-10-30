@@ -433,4 +433,6 @@ assert len([n for n in thm if n.startswith('MVI_0026__')]) == 2, thm
 print(f'Changed sidecars kept existing files and arrived with matching photo copies: {companions + [n for n in thm if "__" in n]}.')
 print(f'Verified {imported} imported files byte-for-byte against synthetic sources; collision group kept one shared suffix: {suffixed}.')
 PY
+# After a pass, keep only the logs: the rebuilt-each-run fixtures and test app take about 1.8 GB.
+find "$root" -mindepth 1 -maxdepth 1 ! -name run -exec rm -rf {} +
 echo "Screenshots: $screens"
