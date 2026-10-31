@@ -105,6 +105,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     let advancedToggle = NSButton(title: "", target: nil, action: nil)
     let advancedBox = NSStackView()
     let cardBehaviorPopup = NSPopUpButton()
+    let otherCardPopup = NSPopUpButton()
     let backgroundLaunch = NSButton(checkboxWithTitle: "Start in the menu bar without a window", target: nil, action: nil)
     let editorPath = NSTextField(labelWithString: "")
     var inspectorItem: NSSplitViewItem!
@@ -126,7 +127,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         loadInspector()
         refresh()
         let cacheDirectory = verificationCacheDirectory
-        DispatchQueue.global(qos: .utility).async { DuplicateVerificationCache(directory: cacheDirectory).save() }
+        DispatchQueue.global(qos: .utility).async {
+            DuplicateVerificationCache(directory: cacheDirectory).save()
+            CameraStaging.removeAbandoned()
+        }
     }
     required init?(coder: NSCoder) { fatalError() }
 
@@ -326,6 +330,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         cardBehaviorPopup.target = self; cardBehaviorPopup.action = #selector(cardBehaviorChanged)
         cardBehaviorPopup.setAccessibilityLabel("When a card is inserted")
         backgroundLaunch.target = self; backgroundLaunch.action = #selector(backgroundLaunchChanged)
+        otherCardPopup.addItems(withTitles: ["Show as new", "Treat as imported"])
+        otherCardPopup.target = self; otherCardPopup.action = #selector(otherCardChanged)
+        otherCardPopup.setAccessibilityLabel("Photos already imported from the camera's other card")
         let loginItems = NSButton(title: "Login Items…", target: NSApp.delegate, action: #selector(AppDelegate.showLoginItems))
         editorPath.font = .systemFont(ofSize: 11); editorPath.textColor = .secondaryLabelColor; editorPath.lineBreakMode = .byTruncatingMiddle
         let chooseEditor = NSButton(title: "Choose Editor…", target: self, action: #selector(chooseEditor))
@@ -336,6 +343,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
                      small("To start at login, add this app under Open at Login in macOS Login Items. The menu-bar option keeps its window closed on launch."),
                      label("When a card is inserted"), cardBehaviorPopup,
                      small("Scanning only previews. Copying always waits for an import button, and an import in progress is never interrupted."),
+                     label("Photos already imported from the camera's other card"), otherCardPopup,
+                     small("Cameras recording to two cards mark each copy with its card slot, so the copies are not byte-identical. Treat as imported matches the camera serial number, capture time, metadata, size, and samples."),
                      label("Editor handoff"), editorPath, chooseEditor,
                      label("Folder template tokens"),
                      small("{YYYY} year · {YY} short year · {MM} month · {DD} day · {event} event name. Use / between folder levels. Each photo uses its own camera-recorded capture day."),
@@ -404,6 +413,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         ejectCheck.state = settings.eject ? .on : .off
         cardBehaviorPopup.selectItem(at: settings.cardInsertion == .showAndScan ? 0 : (settings.cardInsertion == .indicate ? 1 : 2))
         backgroundLaunch.state = settings.launchInBackground ? .on : .off
+        otherCardPopup.selectItem(at: settings.otherCardCopies == .treatAsImported ? 1 : 0)
         rebuildPresetMenu()
     }
 
@@ -499,6 +509,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     @objc func completionChanged() { settings.openInDxO = openEditor.state == .on; settings.eject = ejectCheck.state == .on; persist(); rebuildPresetMenu() }
     @objc func cardBehaviorChanged() { settings.cardInsertion = [CardInsertionBehavior.showAndScan, .indicate, .scanInBackground][cardBehaviorPopup.indexOfSelectedItem]; persist() }
     @objc func backgroundLaunchChanged() { settings.launchInBackground = backgroundLaunch.state == .on; persist() }
+    @objc func otherCardChanged() {
+        settings.otherCardCopies = otherCardPopup.indexOfSelectedItem == 1 ? .treatAsImported : .showAsNew; persist(); rescan()
+    }
     @objc func toggleAdvanced() { advancedBox.isHidden = advancedToggle.state == .off }
     @objc func toggleAdvancedFromTitle() { advancedToggle.state = advancedToggle.state == .on ? .off : .on; toggleAdvanced() }
     func showAdvanced() { advancedToggle.state = .on; toggleAdvanced(); if inspectorItem.isCollapsed { toggleInspector() } }
@@ -712,12 +725,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
                 var value = try Importer.plan(source: input, settings: scanSettings, event: scanSettings.folderTemplate.contains("{event}") ? event : "", fallback: fallback,
                                               helper: helper, cancellation: token,
                                               verificationCache: DuplicateVerificationCache(directory: cacheDirectory), reuseCachedHashes: reuseCachedHashes,
+                                              transferred: snapshot?.transferred ?? [:],
                                               progress: { update in DispatchQueue.main.async { self?.scanProgress(update, generation) } },
                                               discovered: { groups in DispatchQueue.main.async { self?.discovered(groups, generation) } })
                 if let snapshot {
                     value.sourceDescription = source.absoluteString
                     value.sourceFileDescriptions = snapshot.origins
-                    for index in value.files.indices { value.files[index].digest = snapshot.hashes[value.files[index].source.path] }
                 }
                 DispatchQueue.main.async { self?.scanFinished(value, generation) }
             } catch {
@@ -763,7 +776,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
                       ByteCountFormatter.string(fromByteCount: Int64(reads.total), countStyle: .file),
                       ByteCountFormatter.string(fromByteCount: Int64(value.files.reduce(0) { $0 + $1.size }), countStyle: .file))
                + (value.scanReads.cachedCaptureDates > 0 ? " \(value.scanReads.cachedCaptureDates) cached capture dates." : "")
-               + (value.cachedGroups > 0 ? " \(value.cachedGroups) cached matches. Import checks attributes and samples for unselected previous imports; Full Verification rereads complete contents." : ""))
+               + (value.cachedGroups > 0 ? " \(value.cachedGroups) cached matches. Import checks attributes and samples for unselected previous imports; Full Verification rereads complete contents." : "")
+               + (value.otherCardGroups > 0 ? " \(value.otherCardGroups) imported from the camera's other card." : ""))
         refresh()
         gridScroll.contentView.scroll(to: .zero)
         gridScroll.reflectScrolledClipView(gridScroll.contentView)
@@ -805,7 +819,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
                 let thumbnail = primaries.first { $0.role == .image }?.source ?? primaries[0].source
                 return GridEntry(id: group.id, name: group.name, thumbnail: thumbnail, kinds: kinds, fileCount: members.count,
                                  detail: "\(date) · \(files)", status: group.status, missingDate: plan.missingDates(in: [group.id]) > 0, destination: destination,
-                                 dateOrigin: group.date == nil ? nil : group.dateOrigin, cachedVerification: members.contains(where: \.cachedVerification))
+                                 dateOrigin: group.date == nil ? nil : group.dateOrigin, cachedVerification: members.contains(where: \.cachedVerification), otherCard: members.contains(where: \.otherCardCopy))
             }
             let fresh = visible.filter(\.isNew).map(entry)
             let other = visible.filter { !$0.isNew }.map(entry)
@@ -969,7 +983,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
 
         // Inspector state
         let editing = state != .importing
-        for control in [presetPopup, destinationButton, structurePopup, templateField, eventField, fallbackCheck, cardBehaviorPopup] as [NSControl] { control.isEnabled = editing }
+        for control in [presetPopup, destinationButton, structurePopup, templateField, eventField, fallbackCheck, cardBehaviorPopup, otherCardPopup] as [NSControl] { control.isEnabled = editing }
         templateField.isEditable = editing
         fallbackPicker.isEnabled = editing && fallbackCheck.state == .on
         // Show the date control whenever any importable photo needs one (files placed beside an

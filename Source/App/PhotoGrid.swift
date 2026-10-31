@@ -104,6 +104,7 @@ struct GridEntry {
     let destination: String?
     var dateOrigin: String? = nil
     var cachedVerification = false
+    var otherCard = false
     var selectable: Bool { status != nil }
 }
 
@@ -177,19 +178,20 @@ final class GroupTileView: NSView {
         let statusText: String?
         switch entry.status {
         case nil: statusText = "Checking…"
-        case .imported?: statusText = entry.cachedVerification ? "Imported (cached)" : "Imported"
-        case .partial?: statusText = entry.cachedVerification ? "Partly imported (cached)" : "Partly imported"
+        case .imported?: statusText = entry.otherCard ? "Imported (other card)" : entry.cachedVerification ? "Imported (cached)" : "Imported"
+        case .partial?: statusText = entry.otherCard ? "Partly imported (other card)" : entry.cachedVerification ? "Partly imported (cached)" : "Partly imported"
         case .sidecarChanged?: statusText = "Sidecar differs"
         case .sourceDuplicate?: statusText = "Duplicate in source"
         case .new?: statusText = entry.missingDate ? "No capture date" : nil
         }
         statusBadge.text = statusText ?? ""
         statusBadge.isHidden = statusText == nil
-        statusBadge.tint = entry.cachedVerification ? .systemOrange : entry.missingDate && entry.status != .imported ? .systemRed : (entry.status == .imported ? .systemGreen : .black)
+        statusBadge.tint = entry.cachedVerification || entry.otherCard ? .systemOrange : entry.missingDate && entry.status != .imported ? .systemRed : (entry.status == .imported ? .systemGreen : .black)
         let dimmed = entry.status == .imported || entry.status == .sourceDuplicate
         imageView.alphaValue = dimmed ? 0.45 : 1
         updateCheck()
-        toolTip = ((entry.cachedVerification ? ["Cached match: file attributes and samples are unchanged. Selected files are fully checked during import. Unselected previous imports reuse unexpired verification after fresh checks. File > Full Verification rereads complete contents."] : []) + [entry.name + " — " + entry.kinds, entry.detail] + (entry.dateOrigin.map { ["Date from " + $0] } ?? [])
+        toolTip = ((entry.otherCard ? ["Copy from the camera's other card: it matches an imported file's camera serial number, capture time, metadata, size, and samples, but differs in card-slot metadata. Selecting it imports a separate copy."] : [])
+            + (entry.cachedVerification ? ["Cached match: file attributes and samples are unchanged. Selected files are fully checked during import. Unselected previous imports reuse unexpired verification after fresh checks. File > Full Verification rereads complete contents."] : []) + [entry.name + " — " + entry.kinds, entry.detail] + (entry.dateOrigin.map { ["Date from " + $0] } ?? [])
             + (entry.destination.map { ["→ " + $0] } ?? [])).joined(separator: "\n")
         setAccessibilityLabel("\(entry.name), \(entry.kinds), \(entry.detail)\(statusText.map { ", " + $0 } ?? "")")
     }

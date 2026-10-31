@@ -542,21 +542,57 @@ try check(cameraGroups.count == 2 && cameraGroups.contains { $0.members.count ==
 try check((try fm.attributesOfItem(atPath: cameraDirectory.path)[.posixPermissions] as? NSNumber)?.intValue == 0o700, "camera temporary originals are in a private directory")
 var usbSettings = Settings(); usbSettings.destination = root.appendingPathComponent("USB-Library").path
 try fm.createDirectory(atPath: usbSettings.destination, withIntermediateDirectories: true)
-var usbPlan = try plan(event: "", fallback: nil, source: cameraDirectory, settings: usbSettings)
+let usbHintsDirectory = root.appendingPathComponent("USBHints")
+func usbPreview() throws -> ImportPlan {
+    try Importer.plan(source: cameraDirectory, settings: usbSettings, event: "", fallback: nil, helper: helper, cancellation: cancellation,
+                      verificationCache: DuplicateVerificationCache(directory: usbHintsDirectory), transferred: cameraCopy!.transferred, progress: { _ in })
+}
+var usbPlan = try usbPreview()
+try check(usbPlan.scanReads.hashedBytes == 0 && usbPlan.files.allSatisfy { $0.transferVerified && $0.digest == cameraCopy!.hashes[$0.source.path] },
+          "USB preview reuses complete transfer hashes instead of rereading every temporary copy")
 usbPlan.sourceDescription = "camera://synthetic/Z8"; usbPlan.sourceFileDescriptions = cameraCopy!.origins
-for i in usbPlan.files.indices { usbPlan.files[i].digest = cameraCopy!.hashes[usbPlan.files[i].source.path] }
-let usbResult = try run(usbPlan)
+let usbResult = try Importer.run(usbPlan, cancellation: cancellation, reportDirectory: reports, verificationCache: DuplicateVerificationCache(directory: usbHintsDirectory),
+                                 metadataHelper: helper, progress: { _ in })
 try check(usbResult.copied == 3 && usbResult.skipped == 1, "USB snapshots use content-confirmed duplicates and safe related-file imports")
 let usbReport = try JSONSerialization.jsonObject(with: Data(contentsOf: usbResult.receipt)) as! [String: Any]
 try check(usbReport["source"] as? String == "camera://synthetic/Z8" && (usbReport["entries"] as! [[String: Any]]).allSatisfy { ($0["source"] as? String)?.hasPrefix("camera://synthetic/Z8/") == true }, "USB reports retain camera provenance instead of disposable temporary paths")
 let usbAgain = try run(usbPlan)
 try check(usbAgain.copied == 0 && usbAgain.skipped == 4, "USB repeat imports verify existing originals without copying again")
+let usbHints = DuplicateVerificationCache(directory: usbHintsDirectory), usbScope = DuplicateVerificationCache.namespace(root: URL(fileURLWithPath: usbSettings.destination))!
+try check(usbHints.count > 0 && usbPlan.files.allSatisfy { usbHints.hash(for: $0.source, namespace: usbScope, info: $0.sourceInfo, sample: $0.fingerprint) == nil },
+          "disposable camera copies never enter the persistent cache, while destination copies do")
+let usbRepeat = try usbPreview()
+try check(usbRepeat.scanReads.hashedBytes == 0 && usbRepeat.newCount == 0, "repeat USB preview recognizes imported originals without complete local reads")
 // Even a fresh filesystem preview cannot bless a modified snapshot over its transport hash.
 let alteredUSB = usbPlan.files.first { $0.role == .raw }!.source
 try Data(repeating: 23, count: cameraRAW.count).write(to: alteredUSB)
+try rejects("USB preview refuses a temporary copy changed after its transfer hash") { _ = try usbPreview() }
 var alteredUSBPlan = try plan(event: "", fallback: nil, source: cameraDirectory, settings: usbSettings)
 for i in alteredUSBPlan.files.indices { alteredUSBPlan.files[i].digest = cameraCopy!.hashes[alteredUSBPlan.files[i].source.path] }
 try rejects("USB transfer hash rejects local snapshot tampering before publication") { _ = try run(alteredUSBPlan) }
+// Launch cleanup removes only abandoned camera copies, never a live snapshot or a link target.
+var liveCopy: CameraSnapshot? = try CameraStaging.prepare(cameraObjects, camera: "camera://synthetic/Z8", cancellation: Cancellation(), temporaryRoot: cameraTemp, read: cameraRead, progress: { _ in })
+let abandonedCopy = cameraTemp.appendingPathComponent(CameraStaging.prefix + "crashed")
+try fm.createDirectory(at: abandonedCopy.appendingPathComponent("folder-1"), withIntermediateDirectories: true)
+try Data([1]).write(to: abandonedCopy.appendingPathComponent("folder-1/DSC_0001.NEF"))
+try Data().write(to: abandonedCopy.appendingPathComponent(CameraStaging.ownerLock))
+let legacyCopy = cameraTemp.appendingPathComponent(CameraStaging.prefix + "legacy")
+try fm.createDirectory(at: legacyCopy, withIntermediateDirectories: false)
+let protectedTarget = root.appendingPathComponent("NotACameraCopy"); try fm.createDirectory(at: protectedTarget, withIntermediateDirectories: false)
+try Data([7]).write(to: protectedTarget.appendingPathComponent("keep.NEF"))
+try fm.createSymbolicLink(at: cameraTemp.appendingPathComponent(CameraStaging.prefix + "link"), withDestinationURL: protectedTarget)
+try check(CameraStaging.removeAbandoned(in: cameraTemp, grace: 3600) == 1 && !fm.fileExists(atPath: abandonedCopy.path)
+          && fm.fileExists(atPath: liveCopy!.directory.path) && fm.fileExists(atPath: legacyCopy.path)
+          && (try bytes(protectedTarget.appendingPathComponent("keep.NEF"))) == Data([7]),
+          "launch cleanup removes an unlocked abandoned copy, keeps live and recent pre-lock folders, and never follows links")
+try check(CameraStaging.removeAbandoned(in: cameraTemp, grace: 3600, now: Date().addingTimeInterval(7200)) == 1 && !fm.fileExists(atPath: legacyCopy.path)
+          && fm.fileExists(atPath: liveCopy!.directory.path), "pre-lock folders are removed only after the grace period")
+try fm.removeItem(at: cameraTemp.appendingPathComponent(CameraStaging.prefix + "link"))
+let liveDirectory = liveCopy!.directory
+try check(try Importer.files(in: liveDirectory, allowed: nil, cancellation: Cancellation()).0.allSatisfy { !$0.lastPathComponent.hasPrefix(".") },
+          "the owner lock is hidden from source listings")
+liveCopy = nil
+try check(!fm.fileExists(atPath: liveDirectory.path), "a released snapshot removes its folder and lock")
 cameraCopy = nil
 try check(!fm.fileExists(atPath: cameraDirectory.path), "USB temporary originals are removed when their snapshot is released")
 func cameraFailure(_ title: String, objects: [CameraObject] = cameraObjects, token: Cancellation = Cancellation(), read: (CameraObject, Int64, Int) throws -> Data) throws {
@@ -916,6 +952,95 @@ let withoutFallback = try datePreview()
 try check(withoutFallback.missingDates(in: [undatedGroup]) == 1 && withoutFallback.files.first { $0.source == undatedSource }!.ownDate == nil,
           "a previous user fallback never becomes cached native capture metadata")
 
+}
+
+// MARK: Other-card copies (ADR-0014, synthetic only)
+let slotCard = root.appendingPathComponent("SlotCard"), slotLibrary = root.appendingPathComponent("SlotLibrary")
+try fm.createDirectory(at: slotCard, withIntermediateDirectories: true)
+try fm.createDirectory(at: slotLibrary.appendingPathComponent("2025/06/01"), withIntermediateDirectories: true)
+func slotNoisyJPEG(_ url: URL, serial: String?, taken: String, seed: UInt8) throws {
+    var pixels = [UInt8](repeating: 0, count: 320 * 320 * 4), state = UInt32(seed) &+ 7
+    for i in pixels.indices { state = state &* 1_103_515_245 &+ 12_345; pixels[i] = i % 4 == 3 ? 255 : UInt8(truncatingIfNeeded: state >> 16) }
+    let image = CGImage(width: 320, height: 320, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: 320 * 4, space: CGColorSpaceCreateDeviceRGB(),
+                        bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue), provider: CGDataProvider(data: Data(pixels) as CFData)!,
+                        decode: nil, shouldInterpolate: false, intent: .defaultIntent)!
+    var exif: [CFString: Any] = [kCGImagePropertyExifDateTimeOriginal: taken]
+    if let serial { exif[kCGImagePropertyExifBodySerialNumber] = serial }
+    let writer = CGImageDestinationCreateWithURL(url as CFURL, "public.jpeg" as CFString, 1, nil)!
+    CGImageDestinationAddImage(writer, image, [kCGImagePropertyExifDictionary: exif, kCGImageDestinationLossyCompressionQuality: 1.0] as CFDictionary)
+    guard CGImageDestinationFinalize(writer) else { throw ImportError("Fixture generation failed") }
+}
+/// The other card's copy: same bytes except one inside the first sample, outside any metadata.
+func slotCopy(of url: URL, at destination: URL, flipping offset: Int? = 20_000) throws {
+    var data = try bytes(url); data[offset ?? data.count / 2] ^= 0x01; try data.write(to: destination)
+}
+let slotShot = slotCard.appendingPathComponent("DSC_0101.JPG")
+try slotNoisyJPEG(slotShot, serial: "Z8-1234567", taken: "2025:06:01 10:00:00", seed: 1)
+let slotTarget = slotLibrary.appendingPathComponent("2025/06/01/DSC_0101.JPG")
+try slotCopy(of: slotShot, at: slotTarget)
+try check(try bytes(slotShot).count > 128 * 1024 && Importer.digest(slotShot, cancellation: Cancellation()).0 != Importer.digest(slotTarget, cancellation: Cancellation()).0,
+          "other-card fixture is large enough for three samples and not byte-identical")
+var slotSettings = Settings(); slotSettings.destination = slotLibrary.path
+func slotPlan(_ mode: OtherCardCopies = .treatAsImported) throws -> ImportPlan {
+    slotSettings.otherCardCopies = mode
+    return try Importer.plan(source: slotCard, settings: slotSettings, event: "", fallback: nil, helper: helper, cancellation: Cancellation(), progress: { _ in })
+}
+try check(try slotPlan(.showAsNew).newCount == 1, "other-card copies stay new by default")
+let slotPreview = try slotPlan()
+try check(slotPreview.newCount == 0 && slotPreview.otherCardGroups == 1 && slotPreview.groups[0].status == .imported
+          && slotPreview.files[0].existing == slotTarget && !slotPreview.files[0].cachedVerification,
+          "a copy differing only outside metadata and the middle and last samples is recognized as imported from the other card")
+let slotDecoded = try JSONDecoder().decode(Settings.self, from: JSONEncoder().encode(slotSettings))
+try check(slotDecoded.otherCardCopies == .treatAsImported && (try JSONDecoder().decode(Settings.self, from: Data("{}".utf8))).otherCardCopies == .showAsNew,
+          "the other-card setting persists and defaults to Show as new")
+
+// Near-twins remain new: a different capture time or serial, no serial, or a changed middle sample.
+enum SlotVariant { case metadata(serial: String?, taken: String), copy(flipping: Int?) }
+let slotNearTwins: [(String, String?, SlotVariant)] = [
+    ("DSC_0102.JPG", "Z8-1234567", .metadata(serial: "Z8-1234567", taken: "2025:06:01 10:00:01")),
+    ("DSC_0103.JPG", nil, .copy(flipping: 20_000)),
+    ("DSC_0104.JPG", "Z8-1234567", .metadata(serial: "Z8-7654321", taken: "2025:06:01 10:00:00")),
+    ("DSC_0105.JPG", "Z8-1234567", .copy(flipping: nil))]
+for (index, (name, serial, variant)) in slotNearTwins.enumerated() {
+    let shot = slotCard.appendingPathComponent(name), target = slotLibrary.appendingPathComponent("2025/06/01/" + name)
+    try slotNoisyJPEG(shot, serial: serial, taken: "2025:06:01 10:00:00", seed: UInt8(index + 2))
+    switch variant {
+    case .metadata(let otherSerial, let taken): try slotNoisyJPEG(target, serial: otherSerial, taken: taken, seed: UInt8(index + 2))
+    case .copy(let offset): try slotCopy(of: shot, at: target, flipping: offset)
+    }
+}
+let slotNearPreview = try slotPlan()
+try check(slotNearPreview.files.allSatisfy { $0.source == slotShot || ($0.existing == nil && !$0.otherCardCopy) }
+          && slotNearPreview.files.filter { $0.source != slotShot }.allSatisfy { (try? Importer.info(slotLibrary.appendingPathComponent("2025/06/01/" + $0.source.lastPathComponent)).st_size) == Int64($0.size) },
+          "same-size near-twins exist for every case")
+try check(slotNearPreview.otherCardGroups == 1 && slotNearPreview.newCount == slotNearTwins.count,
+          "different capture times, serial numbers, missing serials, or middle-sample changes are never other-card copies")
+try check(Importer.shotIdentity(["ExifIFD:SerialNumber": "1", "ExifIFD:DateTimeOriginal": "2025:06:01 10:00:00", "Nikon:MemoryCardNumber": 0, "File:FileName": "a"])
+          == Importer.shotIdentity(["ExifIFD:SerialNumber": "1", "ExifIFD:DateTimeOriginal": "2025:06:01 10:00:00", "Nikon:MemoryCardNumber": 1, "File:FileName": "b"])
+          && Importer.shotIdentity(["ExifIFD:SerialNumber": "1", "ExifIFD:DateTimeOriginal": "2025:06:01 10:00:00", "Nikon:ShutterCount": 5])
+          != Importer.shotIdentity(["ExifIFD:SerialNumber": "1", "ExifIFD:DateTimeOriginal": "2025:06:01 10:00:00", "Nikon:ShutterCount": 6]),
+          "only card-slot and file-system fields may differ between other-card copies")
+for (name, _, _) in slotNearTwins { try fm.removeItem(at: slotCard.appendingPathComponent(name)); try fm.removeItem(at: slotLibrary.appendingPathComponent("2025/06/01/" + name)) }
+
+// Import: omitted other-card copies are noted and preflighted; a selected one becomes a separate copy.
+let slotNew = slotCard.appendingPathComponent("DSC_0200.JPG")
+try slotNoisyJPEG(slotNew, serial: "Z8-1234567", taken: "2025:06:02 09:00:00", seed: 40)
+let slotMixedTwins = try slotPlan()
+let slotImport = try Importer.run(slotMixedTwins, selection: slotMixedTwins.importableNewGroups, cancellation: Cancellation(), reportDirectory: reports, metadataHelper: helper, progress: { _ in })
+try check(slotImport.copied == 1 && slotImport.notes.contains { $0.contains("1 photos outside the selection were treated as already imported from the camera's other card") && $0.contains("not byte-identical") },
+          "Import All New skips other-card copies and says they are not byte-identical")
+let slotTargetBytes = try bytes(slotTarget)
+let slotGroup = slotMixedTwins.files.first { $0.source == slotShot }!.group
+let slotExplicitTwin = try Importer.run(slotMixedTwins, selection: [slotGroup], cancellation: Cancellation(), reportDirectory: reports, metadataHelper: helper, progress: { _ in })
+let slotCopy = slotExplicitTwin.outcomes[slotShot.path]!
+try check(slotExplicitTwin.copied == 1 && slotCopy != slotTarget && (try bytes(slotCopy)) == (try bytes(slotShot)) && (try bytes(slotTarget)) == slotTargetBytes,
+          "selecting an other-card copy imports a separate verified copy without touching the existing file")
+try fm.removeItem(at: slotCopy)
+let slotStaleTwins = try slotPlan()
+try slotCopy(of: slotShot, at: slotTarget, flipping: nil)
+try rejects("an omitted other-card match whose destination changed stops import before copying") {
+    _ = try Importer.run(slotStaleTwins, selection: slotStaleTwins.importableNewGroups.union([slotStaleTwins.files.first { $0.source == slotNew }!.group]),
+                         cancellation: Cancellation(), reportDirectory: reports, metadataHelper: helper, progress: { _ in })
 }
 
 print("\(checks) checks passed. Fixtures removed; no real card or photo library was modified.")

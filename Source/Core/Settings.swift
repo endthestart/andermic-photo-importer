@@ -9,6 +9,12 @@ enum CardInsertionBehavior: String, Codable, CaseIterable {
     case scanInBackground
 }
 
+/// ADR-0014: photos that differ from an imported file only in the camera's card-slot metadata.
+enum OtherCardCopies: String, Codable, CaseIterable {
+    case showAsNew
+    case treatAsImported
+}
+
 struct ImportPreset: Codable, Equatable {
     var name: String
     var destination: String
@@ -34,6 +40,7 @@ struct Settings: Codable, Equatable {
     var cardInsertion = CardInsertionBehavior.scanInBackground
     var launchInBackground = true
     var presets: [ImportPreset] = []
+    var otherCardCopies = OtherCardCopies.showAsNew
 
     init() {}
 
@@ -51,6 +58,7 @@ struct Settings: Codable, Equatable {
         cardInsertion = (try? values.decodeIfPresent(CardInsertionBehavior.self, forKey: .cardInsertion)) ?? .showAndScan
         launchInBackground = try values.decodeIfPresent(Bool.self, forKey: .launchInBackground) ?? defaults.launchInBackground
         presets = (try? values.decodeIfPresent([ImportPreset].self, forKey: .presets)) ?? []
+        otherCardCopies = (try? values.decodeIfPresent(OtherCardCopies.self, forKey: .otherCardCopies)) ?? .showAsNew
         if destination.isEmpty { destination = defaults.destination }
         if folderTemplate.isEmpty { folderTemplate = defaults.folderTemplate }
     }

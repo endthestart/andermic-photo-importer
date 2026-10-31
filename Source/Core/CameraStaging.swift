@@ -17,10 +17,19 @@ final class CameraSnapshot {
     let directory: URL
     let hashes: [String: String]
     let origins: [String: String]
-    init(directory: URL, hashes: [String: String], origins: [String: String]) {
-        self.directory = directory; self.hashes = hashes; self.origins = origins
+    /// Each copy's attributes after its readback verification, binding `hashes` to that exact file.
+    let versions: [String: stat]
+    /// Holds the directory's owner lock so launch cleanup never removes a live snapshot.
+    private let lock: Int32
+    init(directory: URL, hashes: [String: String], origins: [String: String], versions: [String: stat] = [:], lock: Int32 = -1) {
+        self.directory = directory; self.hashes = hashes; self.origins = origins; self.versions = versions; self.lock = lock
     }
-    deinit { try? FileManager.default.removeItem(at: directory) }
+    /// Complete transfer hashes the preview can use instead of rereading each copy.
+    var transferred: [String: (version: stat, hash: String)] {
+        Dictionary(uniqueKeysWithValues: hashes.compactMap { path, hash in versions[path].map { (path, ($0, hash)) } })
+    }
+    // Remove before unlocking, so no other process can see an unlocked live snapshot.
+    deinit { try? FileManager.default.removeItem(at: directory); if lock >= 0 { close(lock) } }
 }
 
 enum CameraStaging {
@@ -40,11 +49,14 @@ enum CameraStaging {
         // source-symlink refusal remains intact, including on macOS temporary paths.
         let root = try temporaryRoot ?? workingDirectory()
         try Importer.assertDirectory(root)
-        let directory = root.appendingPathComponent("andermic-camera-" + UUID().uuidString, isDirectory: true)
+        let directory = root.appendingPathComponent(prefix + UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+        // Hidden, so source listings skip it. The kernel releases the lock if the process dies.
+        let lock = open(directory.appendingPathComponent(ownerLock).path, O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
         var keep = false
-        defer { if !keep { try? FileManager.default.removeItem(at: directory) } }
-        var hashes: [String: String] = [:], origins: [String: String] = [:], paths = Set<String>(), ids = Set<String>()
+        defer { if !keep { try? FileManager.default.removeItem(at: directory); if lock >= 0 { close(lock) } } }
+        guard lock >= 0, flock(lock, LOCK_EX | LOCK_NB) == 0 else { throw ImportError("Cannot create the temporary camera copy. Check free disk space.") }
+        var hashes: [String: String] = [:], origins: [String: String] = [:], versions: [String: stat] = [:], paths = Set<String>(), ids = Set<String>()
         let files = objects.filter { MediaTypes.importable.contains(($0.name as NSString).pathExtension.lowercased()) }
         guard !files.isEmpty else { throw ImportError("No supported originals were found on this camera.") }
         // Validate the whole catalog before reading anything. Refuse ambiguous names on
@@ -85,15 +97,46 @@ enum CameraStaging {
                 try handle.synchronize(); try handle.close()
             } catch { try? handle.close(); throw error }
             let expected = hash.finalize().map { String(format: "%02x", $0) }.joined()
+            let version = try Importer.info(target)
             let (actual, size) = try Importer.digest(target, cancellation: cancellation)
-            guard size == UInt64(file.size), actual == expected else { throw ImportError("The temporary camera copy did not verify. No destination files were copied.") }
-            hashes[target.path] = expected
+            guard size == UInt64(file.size), actual == expected, Importer.stable(version, try Importer.info(target)) else {
+                throw ImportError("The temporary camera copy did not verify. No destination files were copied.")
+            }
+            hashes[target.path] = expected; versions[target.path] = version
             origins[target.path] = camera + "/" + (file.originalPath ?? (file.folders + [file.name]).joined(separator: "/"))
           }
         }
         try cancellation.check()
         keep = true
-        return CameraSnapshot(directory: directory, hashes: hashes, origins: origins)
+        return CameraSnapshot(directory: directory, hashes: hashes, origins: origins, versions: versions, lock: lock)
+    }
+
+    static let ownerLock = ".owner.lock"
+    static let prefix = "andermic-camera-"
+
+    /// Temporary copies left by a process that quit or crashed mid-preview. A snapshot whose
+    /// owner lock can be taken has no live owner. Folders from before owner locks are removed
+    /// once older than `grace`, which also covers the instant between mkdir and locking.
+    /// Returns the number of folders removed. Never follows links; only this app's folders match.
+    @discardableResult
+    static func removeAbandoned(in root: URL? = nil, grace: TimeInterval = 60 * 60, now: Date = Date()) -> Int {
+        guard let root = try? root ?? workingDirectory(), (try? Importer.assertDirectory(root)) != nil,
+              let names = try? FileManager.default.contentsOfDirectory(atPath: root.path) else { return 0 }
+        var removed = 0
+        for name in names where name.hasPrefix(prefix) {
+            let directory = root.appendingPathComponent(name, isDirectory: true)
+            guard let value = try? Importer.info(directory), value.st_mode & S_IFMT == S_IFDIR else { continue }
+            let lock = open(directory.appendingPathComponent(ownerLock).path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+            if lock >= 0 {
+                defer { close(lock) }
+                // Hold the lock while removing so a live owner can't appear mid-removal.
+                guard flock(lock, LOCK_EX | LOCK_NB) == 0 else { continue }
+                if (try? FileManager.default.removeItem(at: directory)) != nil { removed += 1 }
+            } else if errno == ENOENT, now.timeIntervalSince1970 - TimeInterval(value.st_birthtimespec.tv_sec) > grace {
+                if (try? FileManager.default.removeItem(at: directory)) != nil { removed += 1 }
+            }
+        }
+        return removed
     }
 
     static func workingDirectory() throws -> URL {

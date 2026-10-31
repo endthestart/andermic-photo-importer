@@ -77,6 +77,13 @@ struct PlannedFile {
     /// Cached recognition; selected files are fully rechecked during import.
     var cachedVerification = false
     var cachedCaptureMetadata = false
+    /// `digest` is the complete hash taken while transferring this camera copy. Disposable
+    /// copies are never written to the persistent cache.
+    var transferVerified = false
+    /// ADR-0014: treated as imported because it differs from `existing` only in card-slot
+    /// metadata. Recognition, not byte proof; `otherCardSamples` are its middle and last samples.
+    var otherCardCopy = false
+    var otherCardSamples: [String] = []
 }
 
 enum GroupStatus: String {
@@ -121,6 +128,7 @@ struct ImportPlan {
     func describedSource(_ file: URL) -> String { sourceFileDescriptions[file.path] ?? file.path }
 
     var cachedGroups: Int { groups.filter { members($0).contains(where: \.cachedVerification) }.count }
+    var otherCardGroups: Int { groups.filter { members($0).contains(where: \.otherCardCopy) }.count }
 
     var newCount: Int { files.filter { $0.existing == nil }.count }
     /// Files an import would copy: new files and files whose only match is elsewhere in this source.
@@ -175,6 +183,7 @@ struct ImportPlan {
         var value = self
         for index in value.files.indices where outcomes[value.files[index].source.path] != nil {
             value.files[index].existing = outcomes[value.files[index].source.path]; value.files[index].companion = false; value.files[index].besideDirectory = nil; value.files[index].cachedVerification = false
+            value.files[index].otherCardCopy = false
         }
         for index in value.groups.indices { value.groups[index].status = Importer.status(value.members(value.groups[index]), source: source) }
         return value
@@ -332,6 +341,20 @@ enum Importer {
     // A sample rejects candidates or validates an unchanged-file cache record;
     // it cannot independently establish byte equality.
     static func fingerprint(_ url: URL, cancellation: Cancellation, metrics: ReadMetrics? = nil) throws -> (String, stat) {
+        var hash = SHA256()
+        let version = try samples(url, cancellation: cancellation, metrics: metrics) { hash.update(data: $0) }
+        return (hex(hash.finalize()), version)
+    }
+
+    /// Separate hashes of the first, middle, and last samples (fewer for small files).
+    static func sampleParts(_ url: URL, cancellation: Cancellation, metrics: ReadMetrics? = nil) throws -> ([String], stat) {
+        var parts: [String] = []
+        let version = try samples(url, cancellation: cancellation, metrics: metrics) { parts.append(hex(SHA256.hash(data: $0))) }
+        return (parts, version)
+    }
+
+    /// Reads up to three 32 KiB samples in offset order, failing if the file changes meanwhile.
+    private static func samples(_ url: URL, cancellation: Cancellation, metrics: ReadMetrics?, each: (Data) -> Void) throws -> stat {
         let fd = open(url.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
         guard fd >= 0 else { throw ImportError("Cannot read \(url.path)") }
         defer { close(fd) }
@@ -340,7 +363,6 @@ enum Importer {
         let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: false)
         let size = UInt64(before.st_size), chunk: UInt64 = 32 * 1024
         let offsets = Set([UInt64(0), size > chunk ? (size - chunk) / 2 : 0, size > chunk ? size - chunk : 0]).sorted()
-        var hash = SHA256()
         for offset in offsets {
           try autoreleasepool {
             try cancellation.check()
@@ -348,18 +370,19 @@ enum Importer {
             let count = Int(min(chunk, size - offset))
             let data = try handle.read(upToCount: count) ?? Data()
             guard data.count == count else { throw ImportError("File changed while sampling. Scan again.") }
-            hash.update(data: data); metrics?.sampledBytes += UInt64(data.count)
+            each(data); metrics?.sampledBytes += UInt64(data.count)
           }
         }
         var after = stat()
         guard fstat(fd, &after) == 0, stable(before, after) else { throw ImportError("File changed while sampling. Scan again.") }
-        return (hex(hash.finalize()), after)
+        return after
     }
 
-    /// Complete metadata fallback using the bundled ExifTool.
-    static func dates(_ urls: [URL], helper: MetadataHelper, cancellation: Cancellation) throws -> [String: (CaptureDay, String)] {
+    /// Runs the bundled ExifTool over `urls` in batches of 80 and hands each JSON row to `each`,
+    /// so callers can reduce rows as they arrive. Arguments are never passed through a shell.
+    static func exifToolRows(_ urls: [URL], options: [String], helper: MetadataHelper, cancellation: Cancellation,
+                             each: ([String: Any]) throws -> Void) throws {
         try helper.validate()
-        var result: [String: (CaptureDay, String)] = [:]
         for start in stride(from: 0, to: urls.count, by: 80) {
           try autoreleasepool {
             try cancellation.check()
@@ -372,7 +395,7 @@ enum Importer {
             let out = try FileHandle(forWritingTo: outputURL), err = try FileHandle(forWritingTo: errorsURL)
             defer { try? out.close(); try? err.close() }
             // Arguments are never passed through a shell.
-            let process = helper.process(arguments: ["-j", "-G1", "-a", "-DateTimeOriginal", "-SubSecDateTimeOriginal", "-CreateDate", "-CreationDate", "--"] + batch.map(\.path))
+            let process = helper.process(arguments: options + ["--"] + batch.map(\.path))
             process.standardOutput = out; process.standardError = err
             try process.run()
             let deadline = Date().addingTimeInterval(120)
@@ -386,18 +409,25 @@ enum Importer {
                   let rows = try JSONSerialization.jsonObject(with: Data(contentsOf: outputURL)) as? [[String: Any]] else {
                 throw ImportError("The built-in metadata reader could not read this source. No photos have been copied.")
             }
-            for row in rows {
-                guard let source = row["SourceFile"] as? String else { continue }
-                let preferred = ["ExifIFD:DateTimeOriginal", "Composite:SubSecDateTimeOriginal", "XMP-exif:DateTimeOriginal",
-                                 "Keys:CreationDate", "QuickTime:CreationDate", "ExifIFD:CreateDate", "XMP-xmp:CreateDate", "QuickTime:CreateDate"]
-                let keys = preferred + row.keys.sorted().filter { key in
-                    !preferred.contains(key) && ["DateTimeOriginal", "SubSecDateTimeOriginal", "CreateDate", "CreationDate"].contains(String(key.split(separator: ":").last ?? ""))
-                }
-                for key in keys {
-                    if let raw = row[key] as? String, let day = CaptureDay.parse(raw) { result[source] = (day, key); break }
-                }
-            }
+            for row in rows { try each(row) }
           }
+        }
+    }
+
+    /// Complete metadata fallback using the bundled ExifTool.
+    static func dates(_ urls: [URL], helper: MetadataHelper, cancellation: Cancellation) throws -> [String: (CaptureDay, String)] {
+        var result: [String: (CaptureDay, String)] = [:]
+        try exifToolRows(urls, options: ["-j", "-G1", "-a", "-DateTimeOriginal", "-SubSecDateTimeOriginal", "-CreateDate", "-CreationDate"],
+                         helper: helper, cancellation: cancellation) { row in
+            guard let source = row["SourceFile"] as? String else { return }
+            let preferred = ["ExifIFD:DateTimeOriginal", "Composite:SubSecDateTimeOriginal", "XMP-exif:DateTimeOriginal",
+                             "Keys:CreationDate", "QuickTime:CreationDate", "ExifIFD:CreateDate", "XMP-xmp:CreateDate", "QuickTime:CreateDate"]
+            let keys = preferred + row.keys.sorted().filter { key in
+                !preferred.contains(key) && ["DateTimeOriginal", "SubSecDateTimeOriginal", "CreateDate", "CreationDate"].contains(String(key.split(separator: ":").last ?? ""))
+            }
+            for key in keys {
+                if let raw = row[key] as? String, let day = CaptureDay.parse(raw) { result[source] = (day, key); break }
+            }
         }
         return result
     }
@@ -439,6 +469,68 @@ enum Importer {
         if members.contains(where: { $0.role == .sidecar && $0.existing == nil }) { return .sidecarChanged }
         if primaries.contains(where: { $0.existing!.path.hasPrefix(source.path + "/") }) { return .sourceDuplicate }
         return .imported
+    }
+
+    /// Card-slot fields a camera writes differently to each card when recording to both.
+    static let cardSlotTags: Set<String> = ["MemoryCardNumber", "BurstStartSlotNumber"]
+
+    /// A digest of everything ExifTool reports except file-system values and card-slot fields,
+    /// or nil unless the row names a camera serial number and an original capture time.
+    static func shotIdentity(_ row: [String: Any]) -> String? {
+        guard row["Error"] == nil else { return nil }
+        var lines: [String] = [], serial = false, captured = false
+        for (key, value) in row {
+            let parts = key.split(separator: ":", maxSplits: 1).map(String.init)
+            guard parts.count == 2, !["System", "File", "ExifTool", "Composite"].contains(parts[0]), !cardSlotTags.contains(parts[1]) else { continue }
+            guard let data = try? JSONSerialization.data(withJSONObject: [value], options: [.sortedKeys]) else { return nil }
+            let text = String(decoding: data, as: UTF8.self)
+            let present = text != "[\"\"]" && text != "[null]"
+            if parts[1] == "SerialNumber" && present { serial = true }
+            if parts[1] == "DateTimeOriginal" && present { captured = true }
+            lines.append(key + "\u{0}" + text)
+        }
+        guard serial, captured else { return nil }
+        return hex(SHA256.hash(data: Data(lines.sorted().joined(separator: "\n").utf8)))
+    }
+
+    /// ADR-0014. Marks photos and videos with no byte-identical copy as imported when a destination
+    /// file has the same name and size, the same middle and last samples, and the same camera
+    /// metadata apart from card-slot fields. Groups with sidecars keep the byte-equality rules.
+    static func recognizeOtherCardCopies(_ files: inout [PlannedFile], groups: inout [PhotoGroup], library: LibraryIndex, root: URL, source: URL,
+                                         helper: MetadataHelper, cancellation: Cancellation, metrics: ReadMetrics,
+                                         progress: (ImportProgress) -> Void) throws {
+        var pairs: [(index: Int, target: URL, samples: [String])] = []
+        for group in groups where group.members.allSatisfy({ files[$0].role != .sidecar }) {
+            for index in group.members where files[index].existing == nil {
+              try autoreleasepool {
+                let file = files[index], name = file.source.lastPathComponent.lowercased()
+                let candidates = library.files(size: file.size)
+                    .filter { $0.lastPathComponent.lowercased() == name && $0.path.hasPrefix(root.path + "/") }.sorted { $0.path < $1.path }
+                guard !candidates.isEmpty else { return }
+                let (sourceParts, version) = try sampleParts(file.source, cancellation: cancellation, metrics: metrics)
+                guard stable(file.sourceInfo, version) else { throw ImportError("Source changed during preview. Scan again.") }
+                for candidate in candidates {
+                    try assertDirectory(candidate.deletingLastPathComponent())
+                    let (parts, value) = try sampleParts(candidate, cancellation: cancellation, metrics: metrics)
+                    if UInt64(value.st_size) == file.size, parts.dropFirst() == sourceParts.dropFirst() {
+                        pairs.append((index, candidate, Array(sourceParts.dropFirst())))
+                    }
+                }
+              }
+            }
+        }
+        guard !pairs.isEmpty else { return }
+        progress(ImportProgress("Comparing \(pairs.count) possible copies from the camera's other card…"))
+        let urls = Array(Set(pairs.flatMap { [files[$0.index].source, $0.target] })).sorted { $0.path < $1.path }
+        var identities: [String: String] = [:]
+        try exifToolRows(urls, options: ["-j", "-G1", "-a", "-n", "-fast"], helper: helper, cancellation: cancellation) { row in
+            if let path = row["SourceFile"] as? String, let identity = shotIdentity(row) { identities[path] = identity }
+        }
+        for pair in pairs where files[pair.index].existing == nil {
+            guard let left = identities[files[pair.index].source.path], left == identities[pair.target.path] else { continue }
+            files[pair.index].existing = pair.target; files[pair.index].otherCardCopy = true; files[pair.index].otherCardSamples = pair.samples
+        }
+        for index in groups.indices { groups[index].status = status(groups[index].members.map { files[$0] }, source: source) }
     }
 
     /// Where a group's new files go when some of its photos are already imported.
@@ -504,6 +596,7 @@ enum Importer {
     /// before dates and duplicates are known.
     static func plan(source: URL, settings: Settings, event: String, fallback: CaptureDay?, helper: MetadataHelper, cancellation: Cancellation,
                      verificationCache: DuplicateVerificationCache? = nil, reuseCachedHashes: Bool = true,
+                     transferred: [String: (version: stat, hash: String)] = [:],
                      progress: (ImportProgress) -> Void, discovered: (([SourceGroup]) -> Void)? = nil) throws -> ImportPlan {
         let root = URL(fileURLWithPath: settings.destination, isDirectory: true).standardizedFileURL
         try validateLocations(source: source, root: root)
@@ -586,6 +679,16 @@ enum Importer {
                 // Bind any reused date to the complete hash that originally established it.
                 // This remains required even if the destination copy has disappeared.
                 file.digest = cachedSources[url]?.hash
+                if !transferred.isEmpty {
+                    // A camera copy was hashed in full during transfer; reuse that hash only while
+                    // the copy is unchanged, so local tampering cannot replace the camera's bytes.
+                    guard let copy = transferred[url.path], copy.version.st_dev == version.st_dev, copy.version.st_ino == version.st_ino,
+                          copy.version.st_size == version.st_size, copy.version.st_mtimespec.tv_sec == version.st_mtimespec.tv_sec,
+                          copy.version.st_mtimespec.tv_nsec == version.st_mtimespec.tv_nsec, file.digest == nil || file.digest == copy.hash else {
+                        throw ImportError("A temporary camera copy changed after transfer. Scan the camera again.")
+                    }
+                    file.digest = copy.hash; file.transferVerified = true
+                }
                 if role != .sidecar {
                     var hash = file.digest
                     // Every confirmed copy matters when sidecars must be found beside one of them.
@@ -596,7 +699,8 @@ enum Importer {
                     if found.isEmpty {
                         for peer in seen[key] ?? [] {
                             if hash == nil { hash = try digest(url, cancellation: cancellation, metrics: metrics).0 }
-                            if try digest(peer, cancellation: cancellation, metrics: metrics).0 == hash { file.existing = peer; break }
+                            // Every earlier peer passed the transfer-hash check above.
+                            if try transferred[peer.path]?.hash ?? digest(peer, cancellation: cancellation, metrics: metrics).0 == hash { file.existing = peer; break }
                         }
                     }
                     file.digest = hash
@@ -624,6 +728,10 @@ enum Importer {
             groups.append(PhotoGroup(id: groupID, name: first.source.deletingPathExtension().lastPathComponent, directory: first.source.deletingLastPathComponent(),
                                      members: indices, date: nil, dateOrigin: "missing", folder: nil,
                                      status: status(indices.map { planned[$0] }, source: source)))
+        }
+        if settings.otherCardCopies == .treatAsImported {
+            try recognizeOtherCardCopies(&planned, groups: &groups, library: library, root: root, source: source, helper: helper,
+                                         cancellation: cancellation, metrics: metrics, progress: progress)
         }
         let plan = ImportPlan(source: source, root: root, settings: settings, event: event, fallback: fallback, files: planned, groups: groups,
                               ignored: unsupported, orphanSidecars: orphans, scanReads: metrics)
@@ -794,7 +902,8 @@ enum Importer {
                 throw ImportError("A cached match changed while checking it. Scan again before importing.")
             }
             // Look up both sides so a single stale record costs one complete read, not two.
-            let sourceHit = namespace.flatMap { verificationCache?.hash(for: file.source, namespace: $0, info: sourceSample.1, sample: sourceSample.0) } == expected
+            let sourceHit = (file.transferVerified && sourceSample.0 == file.fingerprint)
+                || namespace.flatMap { verificationCache?.hash(for: file.source, namespace: $0, info: sourceSample.1, sample: sourceSample.0) } == expected
             let targetHit = namespace.flatMap { verificationCache?.hash(for: target, namespace: $0, info: targetSample.1, sample: targetSample.0) } == expected
             if sourceHit && targetHit {
                 reused += 1
@@ -818,12 +927,32 @@ enum Importer {
             }
             // Refresh only sides that were read in full; a cache hit never renews its TTL.
             if let cache = verificationCache, let namespace {
-                if !sourceHit { cache.record(file.source, namespace: namespace, info: sourceSample.1, sample: sourceSample.0, hash: expected) }
+                if !sourceHit && !file.transferVerified { cache.record(file.source, namespace: namespace, info: sourceSample.1, sample: sourceSample.0, hash: expected) }
                 if !targetHit { cache.record(target, namespace: namespace, info: targetSample.1, sample: targetSample.0, hash: expected) }
             }
           }
         }
         return reused
+    }
+
+    /// Omitted other-card copies (ADR-0014) were recognized without byte proof. Before import,
+    /// confirm each recognized destination file is still there with the same size and samples.
+    private static func verifyOtherCardCopies(_ plan: ImportPlan, selected: Set<Int>, cancellation: Cancellation,
+                                              progress: (ImportProgress) -> Void) throws -> Int {
+        let omitted = plan.files.filter { $0.otherCardCopy && !selected.contains($0.group) }
+        for (index, file) in omitted.enumerated() {
+          try autoreleasepool {
+            try cancellation.check()
+            if index % 25 == 0 { progress(ImportProgress("Checking photos imported from the other card \(index + 1) of \(omitted.count)…", fraction: 0)) }
+            guard let target = file.existing, stable(file.sourceInfo, try info(file.source)) else { throw ImportError("Source changed since the preview. Scan again.") }
+            try assertDirectory(target.deletingLastPathComponent())
+            guard let (parts, value) = try? sampleParts(target, cancellation: cancellation), UInt64(value.st_size) == file.size,
+                  Array(parts.dropFirst()) == file.otherCardSamples else {
+                throw ImportError("A photo recognized from the camera's other card is missing or changed in the destination. Scan again before importing. The card has not been ejected.")
+            }
+          }
+        }
+        return omitted.count
     }
 
     /// Cached date fields are untrusted preview hints. Re-read selected originals'
@@ -890,6 +1019,10 @@ enum Importer {
             try confirmCachedCaptureDates(&plan, selected: Set(chosen.map(\.id)), helper: metadataHelper, cancellation: cancellation, progress: progress)
             let cachedMatches = try verifyCachedPreview(plan, selected: Set(chosen.map(\.id)), cancellation: cancellation,
                                                        verificationCache: verificationCache, metrics: cachedMatchMetrics, progress: progress)
+            let otherCard = try verifyOtherCardCopies(plan, selected: Set(chosen.map(\.id)), cancellation: cancellation, progress: progress)
+            if otherCard > 0 {
+                receipt.notes.append("\(otherCard) photos outside the selection were treated as already imported from the camera's other card. Each matches an imported file's camera serial number, capture time, metadata, size, and content samples, but differs in card-slot metadata, so it is not byte-identical.")
+            }
             if cachedMatches > 0 {
                 receipt.notes.append("\(cachedMatches) previously imported files outside the selection used unexpired cached verification after fresh attribute and content-sample checks. Their full contents were not reread. Full Verification checks complete contents.")
             }
@@ -988,9 +1121,11 @@ enum Importer {
                 guard hash == entry.sha256 else { throw ImportError("Final verification failed for \(target.lastPathComponent). Keep the card inserted and scan again.") }
                 if let cache = verificationCache, let namespace = cacheNamespace, let file = sourceFiles[entry.source], file.role != .sidecar,
                    stable(before, try info(target)), stable(file.sourceInfo, try info(file.source)) {
-                    cache.record(file.source, namespace: namespace, info: file.sourceInfo, sample: file.fingerprint, hash: hash)
+                    if !file.transferVerified {
+                        cache.record(file.source, namespace: namespace, info: file.sourceInfo, sample: file.fingerprint, hash: hash)
+                        cache.recordCaptureMetadata(file.source, namespace: namespace, info: file.sourceInfo, sample: file.fingerprint, day: file.ownDate, origin: file.ownDateOrigin)
+                    }
                     cache.record(target, namespace: namespace, info: before, sample: file.fingerprint, hash: hash)
-                    cache.recordCaptureMetadata(file.source, namespace: namespace, info: file.sourceInfo, sample: file.fingerprint, day: file.ownDate, origin: file.ownDateOrigin)
                     cache.recordCaptureMetadata(target, namespace: namespace, info: before, sample: file.fingerprint, day: file.ownDate, origin: file.ownDateOrigin)
                 }
             }
@@ -1060,6 +1195,7 @@ final class LibraryIndex {
         guard errno == 0 else { throw ImportError("Cannot list \(root.path): \(String(cString: strerror(errno)))") }
         return result
     }
+    func files(size: UInt64) -> [URL] { bySize[size] ?? [] }
     func match(source: URL, size: UInt64, fingerprint: String, hash: inout String?, cancellation: Cancellation, metrics: ReadMetrics? = nil) throws -> URL? {
         try matches(source: source, size: size, fingerprint: fingerprint, hash: &hash, all: false, cancellation: cancellation, metrics: metrics).first
     }
