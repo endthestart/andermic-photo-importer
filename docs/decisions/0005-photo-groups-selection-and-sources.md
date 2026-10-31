@@ -15,7 +15,7 @@ Status: accepted on 2026-10-04 with the first-release implementation. Rules belo
 
 ## Duplicate status
 
-- A photo or video is content-confirmed as imported only when a complete SHA-256 match exists anywhere under the destination root, including renamed files. Size and samples only nominate candidates. Reports are never consulted. ADR-0011 amends previews: unchanged attributes and samples may reuse a previously verified hash for up to 30 days, with cached recognition visibly labelled. Import still requires complete current reads, and Full Verification bypasses persistent hints.
+- A photo or video is content-confirmed as imported only when a complete SHA-256 match exists anywhere under the destination root, including renamed files. Size and samples only nominate candidates. Reports are never consulted. ADR-0011 amends previews: unchanged attributes and samples may reuse a previously verified hash for up to 30 days, with cached recognition visibly labelled. ADR-0013 extends that assumption to previous imports outside the import selection after fresh checks. Selected files retain complete current reads, and Full Verification bypasses persistent hints.
 - A sidecar is already imported only when an identical copy sits beside an imported copy of its photo, under the matching name (`<photo base>.xmp`, or `<photo filename>.dop` for full-filename sidecars). Every content-confirmed copy of the photo is checked. Identical sidecar contents elsewhere, such as template XMP files, do not count.
 - Group status:
   - **New:** no primary found.

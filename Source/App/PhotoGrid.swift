@@ -109,6 +109,7 @@ struct GridEntry {
     let destination: String?
     var dateOrigin: String? = nil
     var cachedVerification = false
+    var otherCard = false
     var selectable: Bool { status != nil }
 }
 
@@ -182,23 +183,33 @@ final class GroupTileView: NSView {
         let statusText: String?
         switch entry.status {
         case nil: statusText = "Checking…"
-        case .imported?: statusText = entry.cachedVerification ? "Imported (cached)" : "Imported"
-        case .partial?: statusText = entry.cachedVerification ? "Partly imported (cached)" : "Partly imported"
+        case .imported?: statusText = entry.otherCard ? "Imported (other card)" : entry.cachedVerification ? "Imported (cached)" : "Imported"
+        case .partial?: statusText = entry.otherCard ? "Partly imported (other card)" : entry.cachedVerification ? "Partly imported (cached)" : "Partly imported"
         case .sidecarChanged?: statusText = "Sidecar differs"
         case .sourceDuplicate?: statusText = "Duplicate in source"
         case .new?: statusText = entry.missingDate ? "No capture date" : nil
         }
         statusBadge.text = statusText ?? ""
         statusBadge.isHidden = statusText == nil
-        statusBadge.tint = entry.cachedVerification || (entry.missingDate && entry.status != .imported) ? Theme.warn : (entry.status == .imported ? Theme.good : nil)
+        statusBadge.tint = entry.cachedVerification || entry.otherCard || (entry.missingDate && entry.status != .imported) ? Theme.warn : (entry.status == .imported ? Theme.good : nil)
         let dimmed = entry.status == .imported || entry.status == .sourceDuplicate
         imageView.alphaValue = dimmed ? 0.45 : 1
         updateCheck()
-        toolTip =
-            ((entry.cachedVerification ? ["Cached match: file attributes and samples are unchanged. Import rechecks full contents; File > Full Verification bypasses the cache."] : []) + [
-                entry.name + " — " + entry.kinds, entry.detail,
-            ] + (entry.dateOrigin.map { ["Date from " + $0] } ?? [])
-            + (entry.destination.map { ["→ " + $0] } ?? [])).joined(separator: "\n")
+        var tips: [String] = []
+        if entry.otherCard {
+            tips.append(
+                "Copy from the camera's other card: it matches an imported file's camera serial number, capture time, metadata, size, and samples, but differs in card-slot metadata. Selecting it imports a separate copy."
+            )
+        }
+        if entry.cachedVerification {
+            tips.append(
+                "Cached match: file attributes and samples are unchanged. Selected files are fully checked during import. Unselected previous imports reuse unexpired verification after fresh checks. File > Full Verification rereads complete contents."
+            )
+        }
+        tips += [entry.name + " — " + entry.kinds, entry.detail]
+        if let origin = entry.dateOrigin { tips.append("Date from " + origin) }
+        if let destination = entry.destination { tips.append("→ " + destination) }
+        toolTip = tips.joined(separator: "\n")
         setAccessibilityLabel("\(entry.name), \(entry.kinds), \(entry.detail)\(statusText.map { ", " + $0 } ?? "")")
     }
 

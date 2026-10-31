@@ -9,6 +9,8 @@
 - Bounded working memory for hashing, staging, copies, and thumbnails.
 - Source and destination hashes on different devices are read together. Select All, Select All New, and Deselect All buttons.
 - A 30-day preview verification cache makes repeat scans fast. Imports still verify every file in full; File > Full Verification bypasses the cache.
+- Repeat previews reuse verified capture dates and cached checks for unselected previous imports; the destination is listed in one pass.
+- Optionally treat copies from the camera's other card as already imported. USB camera previews read originals on demand, and abandoned camera snapshots are cleaned up at launch.
 
 Validation: 207 synthetic safety checks, the synthetic memory exercise, and build/package verification.
 
