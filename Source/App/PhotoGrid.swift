@@ -190,9 +190,13 @@ final class GroupTileView: NSView {
         let dimmed = entry.status == .imported || entry.status == .sourceDuplicate
         imageView.alphaValue = dimmed ? 0.45 : 1
         updateCheck()
-        toolTip = ((entry.otherCard ? ["Copy from the camera's other card: it matches an imported file's camera serial number, capture time, metadata, size, and samples, but differs in card-slot metadata. Selecting it imports a separate copy."] : [])
-            + (entry.cachedVerification ? ["Cached match: file attributes and samples are unchanged. Selected files are fully checked during import. Unselected previous imports reuse unexpired verification after fresh checks. File > Full Verification rereads complete contents."] : []) + [entry.name + " — " + entry.kinds, entry.detail] + (entry.dateOrigin.map { ["Date from " + $0] } ?? [])
-            + (entry.destination.map { ["→ " + $0] } ?? [])).joined(separator: "\n")
+        var tips: [String] = []
+        if entry.otherCard { tips.append("Copy from the camera's other card: it matches an imported file's camera serial number, capture time, metadata, size, and samples, but differs in card-slot metadata. Selecting it imports a separate copy.") }
+        if entry.cachedVerification { tips.append("Cached match: file attributes and samples are unchanged. Selected files are fully checked during import. Unselected previous imports reuse unexpired verification after fresh checks. File > Full Verification rereads complete contents.") }
+        tips += [entry.name + " — " + entry.kinds, entry.detail]
+        if let origin = entry.dateOrigin { tips.append("Date from " + origin) }
+        if let destination = entry.destination { tips.append("→ " + destination) }
+        toolTip = tips.joined(separator: "\n")
         setAccessibilityLabel("\(entry.name), \(entry.kinds), \(entry.detail)\(statusText.map { ", " + $0 } ?? "")")
     }
 
