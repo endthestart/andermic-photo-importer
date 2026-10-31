@@ -793,15 +793,16 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         sidebar.reloadData(); selectSidebarRow()
         let elapsed = Date().timeIntervalSince(scanStarted)
         let reads = value.scanReads
-        status(
-            String(
-                format: "Scanned in %.1f s · %@ read to check %@ of photos.", elapsed,
-                ByteCountFormatter.string(fromByteCount: Int64(reads.total), countStyle: .file),
-                ByteCountFormatter.string(fromByteCount: Int64(value.files.reduce(0) { $0 + $1.size }), countStyle: .file))
-                + (value.scanReads.cachedCaptureDates > 0 ? " \(value.scanReads.cachedCaptureDates) cached capture dates." : "")
-                + (value.cachedGroups > 0
-                    ? " \(value.cachedGroups) cached matches. Import checks attributes and samples for unselected previous imports; Full Verification rereads complete contents." : "")
-                + (value.otherCardGroups > 0 ? " \(value.otherCardGroups) imported from the camera's other card." : ""))
+        var summary = String(
+            format: "Scanned in %.1f s · %@ read to check %@ of photos.", elapsed,
+            ByteCountFormatter.string(fromByteCount: Int64(reads.total), countStyle: .file),
+            ByteCountFormatter.string(fromByteCount: Int64(value.files.reduce(0) { $0 + $1.size }), countStyle: .file))
+        if reads.cachedCaptureDates > 0 { summary += " \(reads.cachedCaptureDates) cached capture dates." }
+        if value.cachedGroups > 0 {
+            summary += " \(value.cachedGroups) cached matches. Import checks attributes and samples for unselected previous imports; Full Verification rereads complete contents."
+        }
+        if value.otherCardGroups > 0 { summary += " \(value.otherCardGroups) imported from the camera's other card." }
+        status(summary)
         refresh()
         gridScroll.contentView.scroll(to: .zero)
         gridScroll.reflectScrolledClipView(gridScroll.contentView)
