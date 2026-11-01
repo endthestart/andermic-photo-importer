@@ -19,7 +19,7 @@ ditto "dist/Corvus.app" "$app"
 # the installed app's privacy identity when their ad hoc code hashes change.
 /usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier com.senexapps.corvus.ui-exercise' "$app/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c 'Set :CFBundleDisplayName Corvus UI Tests' "$app/Contents/Info.plist"
-xcrun swiftc -swift-version 5 -O -D UI_AUTOMATION -module-cache-path build/module-cache Source/Core/*.swift Source/App/*.swift -o "$app/Contents/MacOS/corvus"
+xcrun swiftc -swift-version 5 -O -D UI_AUTOMATION -target "$(uname -m)-apple-macosx13.0" -module-cache-path build/module-cache Source/Core/*.swift Source/App/*.swift -o "$app/Contents/MacOS/corvus"
 codesign --force --sign - --entitlements scripts/camera.entitlements "$app"
 
 # Fixtures: a 26-photo folder card, a large card for cancellation, and a DMG card for insertion.
@@ -334,7 +334,7 @@ expect backgroundLaunch false
 quit
 STEPS
 
-open -n "$app" --args -CorvusSettingsDirectory "$root/Settings" -CorvusUIScript "$root/run/script.txt"
+open -n "$app" --args -CorvusSettingsDirectory "$root/Settings" -CorvusUIScript "$root/run/script.txt" -CorvusUIScreens "$screens"
 log="$root/run/script.txt.log"
 deadline=$((SECONDS + 300)); handled=0
 while (( SECONDS < deadline )); do
@@ -345,9 +345,7 @@ while (( SECONDS < deadline )); do
         handled=$((handled + 1))
         line="$(sed -n "${handled}p" "$log")"
         case "$line" in
-            SNAP*) read -r _ name window _ <<<"$line"
-                   sleep 0.4
-                   screencapture -x -o -l "$window" "$screens/$name.png"
+            SNAP*) read -r _ name _ <<<"$line"
                    touch "$root/run/$name.done" ;;
             "SHELL attach-card") hdiutil attach -quiet "$root/card.dmg"; touch "$root/run/attach-card.done" ;;
             "SHELL change-sidecars")

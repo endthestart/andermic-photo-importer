@@ -224,8 +224,10 @@ final class UIAutomation {
                     if button.isHiddenOrHasHiddenAncestor || frame.width + 0.5 < button.fittingSize.width || !content.bounds.contains(frame) {
                         write("FAIL selection button clipped: \(button.title)")
                     }
-                    if let previous, previous.intersects(frame) { write("FAIL overlapping selection buttons") }
-                    previous = frame
+                    // Frames include the bezel's invisible padding; alignment rects are what the user sees.
+                    let visible = button.alignmentRect(forFrame: frame)
+                    if let previous, previous.intersects(visible) { write("FAIL overlapping selection buttons") }
+                    previous = visible
                 }
             }
             write("ok grid integrity visibleTiles=\(tiles.count)")
@@ -358,16 +360,13 @@ final class UIAutomation {
             return
         case "advanced": controller.showAdvanced()
         case "notices": (NSApp.delegate as? AppDelegate)?.showNotices()
-        case "snapKey":  // the key window, such as Third-Party Notices
-            write("SNAP \(argument) \(NSApp.keyWindow?.windowNumber ?? controller.window!.windowNumber) 0")
-            waitingFor = log.deletingLastPathComponent().appendingPathComponent(argument + ".done")
+        case "snapKey":  // Third-Party Notices, even if this app is not frontmost
+            snapshot((NSApp.delegate as? AppDelegate)?.notices?.window ?? NSApp.keyWindow ?? controller.window!, named: argument)
         case "shell":
             write("SHELL \(argument)")
             waitingFor = log.deletingLastPathComponent().appendingPathComponent(argument + ".done")
         case "snap":
-            let sheet = controller.window?.attachedSheet ?? NSApp.modalWindow
-            write("SNAP \(argument) \(controller.window!.windowNumber) \(sheet?.windowNumber ?? 0)")
-            waitingFor = log.deletingLastPathComponent().appendingPathComponent(argument + ".done")
+            snapshot(controller.window!, named: argument)
         case "state":
             let plan = controller.plan
             write(
@@ -380,6 +379,25 @@ final class UIAutomation {
         default: write("FAIL unknown step \(step)")
         }
         write("ok \(step)")
+    }
+
+    /// Saves one of this app's windows once it settles. A process can capture its own windows
+    /// without macOS's Screen Recording permission, which `screencapture` would need.
+    func snapshot(_ window: NSWindow, named name: String) {
+        let number = CGWindowID(window.windowNumber)
+        waitingFor = log.deletingLastPathComponent().appendingPathComponent(name + ".done")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [self] in
+            let folder = UserDefaults.standard.string(forKey: "CorvusUIScreens").map { URL(fileURLWithPath: $0, isDirectory: true) }
+            if let folder, let image = CGWindowListCreateImage(.null, .optionIncludingWindow, number, [.boundsIgnoreFraming, .bestResolution]),
+                let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]),
+                (try? png.write(to: folder.appendingPathComponent(name + ".png"))) != nil
+            {
+                write("SNAP \(name) \(number)")
+            } else {
+                write("FAIL snap \(name): could not save window \(number)")
+                write("SNAP \(name) \(number)")
+            }
+        }
     }
 }
 #endif
