@@ -66,18 +66,18 @@ The audit kept no caches. The 3.8 GB scan fixtures, the coverage build, the idle
   | `DuplicateVerificationCache.swift` | 99.2% |
 
 - **Critical path with no test:** the production settings folder and the order of legacy folders after the rename. Fixed in `227201c`. What remains uncovered is `MetadataHelper.bundled()`, which the package verification exercises.
-- **App layer:** selection, filters, ejection eligibility and window lifecycle are covered only by the GUI exercise. That exercise **could not run** on this audit, because window capture fails while the screen is locked (`CGSSessionScreenIsLocked = true`). Rerun it once the Mac is unlocked.
+- **App layer:** selection, filters, ejection eligibility and window lifecycle are covered only by the GUI exercise. It passed on 2026-11-01 with no failures and 89 files matched byte for byte. It was blocked during the audit because `screencapture` needs Screen Recording permission, which the host app lacks on this Mac, and because a locked screen stops the app coming to the front. The test app now captures its own windows (`fcbeb05`).
 - **Mocks:** the camera tests use an injectable transport rather than a camera. The owner's rules allow this, because real cameras are off-limits without authorization.
 
 ## 6. Docs
 
-- **README commands:** `./test.sh`, `./build.sh`, `./scripts/package.sh`, `./scripts/verify-package.sh` and `./scripts/performance-exercise.sh` were run and pass. `./scripts/ui-exercise.sh` is blocked by the locked screen.
+- **README commands:** `./test.sh`, `./build.sh`, `./scripts/package.sh`, `./scripts/verify-package.sh`, `./scripts/performance-exercise.sh` and `./scripts/ui-exercise.sh` were run and pass.
 - **Links:** 24 Markdown files, 0 broken relative links (checked by script; lychee is not installed, so external links were not checked).
 - **ADRs:** 0001–0011 all carry a status line. ADR-0001's product line now records the rename.
 - **CHANGELOG:** ended at 0.1.0-alpha.2 (Oct 5), missing the menu-bar lifecycle, USB camera, memory, cache and rename work. Fixed in `c6b74be`.
 - **ROADMAP:** still said "accepted Aperture A branding" and omitted the shipped USB camera and cache work. Fixed in `c6b74be`.
 - **Undocumented inputs:** `BUILD_NUMBER`, `-CorvusSettingsDirectory` and `-CorvusUIScript` were read but documented nowhere. Fixed in `11f8a85`.
-- **README screenshots:** they still show the pre-SENEX look, and will be refreshed from the next GUI exercise.
+- **README screenshots:** refreshed from the 2026-11-01 GUI exercise.
 - **AGENTS.md and CLAUDE.md:** match the repo. `CLAUDE.md` imports `AGENTS.md`.
 
 ## 7. Scripts, config and CI
@@ -85,7 +85,7 @@ The audit kept no caches. The 3.8 GB scan fixtures, the coverage build, the idle
 - **Shell syntax:** all shell scripts pass `bash -n` (shellcheck is not installed).
 - **Environment variables:** every one read by a script is now documented.
 - **Performance exercise:** broken by the theme change. Fixed in `7a2dbde`.
-- **UI exercise:** left about 1.8 GB of fixtures after each pass. It now keeps only its logs after a pass (`344b221`); a failed run still keeps everything for inspection. This change is not yet exercised, for the same locked-screen reason.
+- **UI exercise:** left about 1.8 GB of fixtures after each pass. It now keeps only its logs after a pass (`344b221`; 40 KB measured); a failed run still keeps everything for inspection.
 - **Workflows:** both are live (`ci.yml` on pushes and PRs, `release.yml` on tags). Neither is dead.
 
 ## 8. Complexity hotspots (not refactored)
@@ -129,7 +129,7 @@ Measured on this Mac Pro with the current build (optimized, synthetic data):
 | Workload | Wall | CPU | Peak memory |
 |---|---|---|---|
 | Menu-bar idle, no window, 60 s (`top`, 13 samples) | — | 0.00 s, 0.0 %, 0 idle wakeups, 3 threads | 20 MB footprint, 47 MB RSS |
-| Window-open idle | not measurable while the screen is locked | | |
+| Window-open idle, no source, 60 s (`top`, 12 samples) | — | 0.00 s, 0.0 %, 0 idle wakeups, 3 threads | 24 MB footprint, 54 MB RSS |
 | Cold scan: 24 × 80 MB duplicates, card and library on one SSD (3.8 GB hashed, serial) | 10.07 s | 9.90 s | 27.5 MiB |
 | Warm scan of the same, 24 cache hits | 0.25 s | 0.07 s | 7.1 MiB |
 | `digest` 1 GiB / `paired-digest` 1 GiB | 2.62 s / 1.31 s | — | 17.0 / 16.0 MB |
@@ -166,7 +166,7 @@ Measured on this Mac Pro with the current build (optimized, synthetic data):
   - Badges always pair colour with text.
   - Section labels expose sentence-case names.
   - The new progress bar reports its role and value.
-  - VoiceOver was not run: the screen was locked.
+  - VoiceOver was not run.
 - **macOS conventions:**
   - Native controls keep the system accent, a known seam: AppKit has no app-wide accent override without an asset catalog.
   - **Settings… (⌘,) opens the main window's Import Options panel** rather than a Settings window. That is unusual for a Mac app but deliberate in ADR-0005's single-window design. Leave as is unless the owner wants a window.
@@ -177,7 +177,7 @@ Measured on this Mac Pro with the current build (optimized, synthetic data):
 ## 13. Roadmap
 
 - **Next, in order:**
-  1. Run the GUI exercise and the physical card reinsertion on the current build (both blocked by the locked screen), and refresh the README screenshots.
+  1. Run the physical card reinsertion on the current build.
   2. Install the renamed app in place of the old one (README, "Moving from Andermic Photo Importer").
   3. Push this branch and open a PR.
   4. Complete the qualification list in `docs/ROADMAP.md` (real-camera fixtures, older macOS, clean install, Developer ID and notarization).
@@ -190,10 +190,10 @@ Measured on this Mac Pro with the current build (optimized, synthetic data):
 Each comes with a recommendation; the PM sends them one at a time.
 
 1. **Bundle ID:** answered. The owner registered senexapps.com, and Corvus now uses `com.senexapps.corvus`, matching Pictor.
-2. **Push:** push `claude/corvus-pictor-design-0851ec` and open a PR to `main`? Recommendation: yes, after the GUI exercise passes.
+2. **Push and PRs:** the owner approved pushing the branch for a CI build. Opening the PRs is asked separately.
 3. **Background scan heat:** handed over. The owner's Codex session (branch `codex/sd-card-metadata-cache`) is working on import performance, so this branch changes no scan code. The options below go to that work. (a) run scans the user didn't start (background card insertion, launch scans) at `.utility`; (b) confirm duplicates by comparing the two files byte for byte instead of hashing both, which avoids most SHA-256 work; (c) leave as is. Recommendation: first confirm whether the fans still spin with the current build, which has the cache; if they do, (a). (b) changes import safety and needs its own ADR.
 4. **Disk space in the main checkout:** answered. `build/ui-exercise` and `build/module-cache` were deleted (`build/` went from 2.4 GB to 171 MB). The app backup was copied to `/Volumes/storage/backup/Development/corvus/installed-backup-20261005-185204/`, its 1,791 files checked by SHA-256, and the local copy moved to the Trash.
 5. **ExifTool 13.59 → 13.60:** answered. The owner chose the upgrade. Both are development releases, and the latest production release (13.55) lacks 13.59's security update. 13.60 is pinned by the SHA-256 published on exiftool.org, whose download link points to SourceForge.
 6. **Merged branches:** answered. Both were deleted locally and on GitHub; their trees matched PRs #1 and #2. Tips: `feature/core-first-release` 280974e549da, `feature/menu-bar-lifecycle` 472d491f7ab9.
-7. **Split `MainWindow.swift` and `ImportCore.swift`** to meet the 300-line rule, as a separate refactor after this branch lands? Recommendation: yes, one file per PR with the GUI exercise.
+7. **Split `MainWindow.swift` and `ImportCore.swift`:** the owner chose one file per PR. `MainWindow.swift` goes first, and `ImportCore.swift` waits for the Codex import branch to merge.
 8. **Formatter:** answered. The owner approved the house-style `.swift-format`. The formatting-only commit `08c1b1c` is listed in `.git-blame-ignore-revs`, and CI runs `swift-format lint --strict` (`c34915e`).
