@@ -118,6 +118,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
             contentRect: NSRect(x: 0, y: 0, width: 1320, height: 820),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         window.title = "Corvus"
+        window.backgroundColor = Theme.chrome
+        window.titlebarAppearsTransparent = true
         window.minSize = NSSize(width: 1040, height: 620)
         window.isReleasedWhenClosed = false
         window.toolbarStyle = .unified
@@ -204,7 +206,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         choose.bezelStyle = .rounded; choose.controlSize = .regular
         let hint = small("Connect a USB camera, insert a card, or choose a folder.")
         let footer = NSStackView(views: [choose, hint]); footer.orientation = .vertical; footer.alignment = .leading; footer.spacing = 8
-        let view = NSView()
+        let view = NSView(); Theme.fill(view, Theme.chrome)
         for item in [scroll, footer] as [NSView] { item.translatesAutoresizingMaskIntoConstraints = false; view.addSubview(item) }
         NSLayoutConstraint.activate([
             scroll.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
@@ -634,7 +636,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         var rows: [(String, URL?, String, Bool)] = [("CARDS", nil, "", true)]
         rows += cards.isEmpty ? [("No cards detected", nil, "sdcard", false)] : cards.map { ($0.lastPathComponent, $0, "sdcard", false) }
         rows += [("CAMERAS", nil, "", true)]
-        rows += cameras.isEmpty ? [("No USB cameras detected", nil, "camera", false)] : cameras.map { ($0.name, $0.url, "camera", false) }
+        rows += cameras.isEmpty ? [("No cameras detected", nil, "camera", false)] : cameras.map { ($0.name, $0.url, "camera", false) }
         if let source, source.isFileURL, !cards.contains(source) { rows += [("FOLDER", nil, "", true), (source.lastPathComponent, source, "folder", false)] }
         return rows
     }
@@ -649,6 +651,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         let cell = NSTableCellView()
         let image = NSImageView(image: NSImage(systemSymbolName: item.icon, accessibilityDescription: nil)!)
         image.contentTintColor = item.url == nil ? Theme.muted : Theme.accent
+        image.setContentCompressionResistancePriority(.required, for: .horizontal)  // long names truncate; the icon stays
         let text = NSTextField(labelWithString: item.title); text.lineBreakMode = .byTruncatingMiddle
         text.textColor = item.url == nil ? Theme.muted : Theme.text
         var views: [NSView] = [image, text]
