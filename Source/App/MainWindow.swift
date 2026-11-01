@@ -158,7 +158,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         let split = NSSplitViewController()
         split.splitView.autosaveName = "MainSplit"
         sidebarItem = NSSplitViewItem(sidebarWithViewController: viewController(buildSidebar()))
-        sidebarItem.minimumThickness = 190; sidebarItem.maximumThickness = 280
+        sidebarItem.minimumThickness = 210; sidebarItem.maximumThickness = 280
         let center = NSSplitViewItem(viewController: viewController(buildCenter()))
         center.minimumThickness = 520
         inspectorItem = NSSplitViewItem(viewController: viewController(buildInspector()))
@@ -279,7 +279,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         importSelectedButton.keyEquivalent = "\r"
         let statusStack = NSStackView(views: [selectionLabel, statusLabel]); statusStack.orientation = .vertical; statusStack.alignment = .leading; statusStack.spacing = 1
         statusStack.setContentHuggingPriority(.init(1), for: .horizontal)
-        let footer = NSStackView(views: [progressBar, statusStack, cancelButton, importAllButton, importSelectedButton])
+        let footer = NSStackView(views: [progressBar, statusStack, NSView(), cancelButton, importAllButton, importSelectedButton])
         footer.spacing = 10; footer.alignment = .centerY
         footer.edgeInsets = NSEdgeInsets(top: 10, left: 20, bottom: 12, right: 20)
 
@@ -1108,7 +1108,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         importSelectedButton.isEnabled = current && !chosen.isEmpty && plan.missingDates(in: chosen) == 0
         importAllButton.isEnabled = current && !newGroups.isEmpty
         let bytes = ByteCountFormatter.string(fromByteCount: Int64(plan.bytes(in: chosen)), countStyle: .file)
-        var text = chosen.isEmpty ? "No photos selected" : "\(chosen.count) selected · \(plan.fileCount(in: chosen)) files · \(bytes) to copy"
+        let fileCount = plan.fileCount(in: chosen)
+        var text = chosen.isEmpty ? "No photos selected" : "\(chosen.count) selected · \(fileCount) \(fileCount == 1 ? "file" : "files") · \(bytes) to copy"
         if hidden > 0 { text += " · \(hidden) hidden by filters won’t be imported" }
         let missing = plan.missingDates(in: chosen)
         if missing > 0 { text += " · \(missing) selected files need a capture date" }

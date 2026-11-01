@@ -5,6 +5,8 @@ final class NoticesWindow: NSWindowController {
     convenience init(helper: MetadataHelper?) {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 640), styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
         window.title = "Third-Party Notices"
+        window.backgroundColor = Theme.ground
+        window.titlebarAppearsTransparent = true
         window.minSize = NSSize(width: 480, height: 360)
         window.setFrameAutosaveName("ThirdPartyNotices")
         self.init(window: window)
