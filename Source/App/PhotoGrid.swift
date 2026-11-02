@@ -13,7 +13,7 @@ final class ThumbnailLoader {
     private var generation = 0
 
     init() {
-        queue.name = "Andermic thumbnails"
+        queue.name = "Corvus thumbnails"
         queue.maxConcurrentOperationCount = Self.defaultConcurrency
         queue.qualityOfService = .userInitiated
         cache.countLimit = 256
@@ -47,7 +47,9 @@ final class ThumbnailLoader {
             guard expectedGeneration == self.generation, !operation.isCancelled else { self.lock.unlock(); return }
             if let rendered {
                 self.cache.setObject(rendered.image, forKey: key as NSString, cost: rendered.cost)
-            } else { self.failed.insert(key) }
+            } else {
+                self.failed.insert(key)
+            }
             self.lock.unlock()
             DispatchQueue.main.async {
                 self.lock.lock(); let current = expectedGeneration == self.generation; self.lock.unlock()
@@ -70,18 +72,21 @@ final class ThumbnailLoader {
 
     static func render(_ url: URL, maxPixels: Int = 480) -> Rendered? {
         guard MediaTypes.role(of: url) != .video,
-              let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary) else { return nil }
+            let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary)
+        else { return nil }
         let isRAW = MediaTypes.role(of: url) == .raw
         func thumbnail(always: Bool) -> CGImage? {
-            CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                // Never develop a full RAW just to fill a grid tile. If no
-                // embedded preview is available, retain the importable placeholder.
-                kCGImageSourceCreateThumbnailFromImageIfAbsent: !isRAW,
-                kCGImageSourceCreateThumbnailFromImageAlways: always,
-                kCGImageSourceThumbnailMaxPixelSize: maxPixels,
-                kCGImageSourceCreateThumbnailWithTransform: true,
-                kCGImageSourceShouldCacheImmediately: true,
-            ] as CFDictionary)
+            CGImageSourceCreateThumbnailAtIndex(
+                source, 0,
+                [
+                    // Never develop a full RAW just to fill a grid tile. If no
+                    // embedded preview is available, retain the importable placeholder.
+                    kCGImageSourceCreateThumbnailFromImageIfAbsent: !isRAW,
+                    kCGImageSourceCreateThumbnailFromImageAlways: always,
+                    kCGImageSourceThumbnailMaxPixelSize: maxPixels,
+                    kCGImageSourceCreateThumbnailWithTransform: true,
+                    kCGImageSourceShouldCacheImmediately: true,
+                ] as CFDictionary)
         }
         // Prefer an embedded preview; decode the image only when that preview is too small to look sharp.
         var image = thumbnail(always: false)
@@ -104,6 +109,7 @@ struct GridEntry {
     let destination: String?
     var dateOrigin: String? = nil
     var cachedVerification = false
+    var otherCard = false
     var selectable: Bool { status != nil }
 }
 
@@ -125,12 +131,12 @@ final class GroupTileView: NSView {
         // photo layer-backed can retain old text when AppKit recycles grid views.
         wantsLayer = true
         frameView.wantsLayer = true
-        frameView.layer?.cornerRadius = 6
+        frameView.layer?.cornerRadius = Theme.radius("tile")
         frameView.layer?.masksToBounds = true
-        frameView.layer?.backgroundColor = NSColor.quaternaryLabelColor.cgColor
+        frameView.layer?.backgroundColor = Theme.card.cgColor
         imageView.imageScaling = .scaleProportionallyUpOrDown
-        nameLabel.font = .systemFont(ofSize: 11, weight: .medium); nameLabel.lineBreakMode = .byTruncatingMiddle
-        detailLabel.font = .systemFont(ofSize: 10); detailLabel.textColor = .secondaryLabelColor; detailLabel.lineBreakMode = .byTruncatingTail
+        nameLabel.font = .systemFont(ofSize: 11, weight: .medium); nameLabel.textColor = Theme.text; nameLabel.lineBreakMode = .byTruncatingMiddle
+        detailLabel.font = Theme.font("note"); detailLabel.textColor = Theme.muted; detailLabel.lineBreakMode = .byTruncatingTail
         for view in [frameView, imageView, check, nameLabel, detailLabel, kindBadge, statusBadge] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
         }
@@ -177,20 +183,33 @@ final class GroupTileView: NSView {
         let statusText: String?
         switch entry.status {
         case nil: statusText = "Checking…"
-        case .imported?: statusText = entry.cachedVerification ? "Imported (cached)" : "Imported"
-        case .partial?: statusText = entry.cachedVerification ? "Partly imported (cached)" : "Partly imported"
+        case .imported?: statusText = entry.otherCard ? "Imported (other card)" : entry.cachedVerification ? "Imported (cached)" : "Imported"
+        case .partial?: statusText = entry.otherCard ? "Partly imported (other card)" : entry.cachedVerification ? "Partly imported (cached)" : "Partly imported"
         case .sidecarChanged?: statusText = "Sidecar differs"
         case .sourceDuplicate?: statusText = "Duplicate in source"
         case .new?: statusText = entry.missingDate ? "No capture date" : nil
         }
         statusBadge.text = statusText ?? ""
         statusBadge.isHidden = statusText == nil
-        statusBadge.tint = entry.cachedVerification ? .systemOrange : entry.missingDate && entry.status != .imported ? .systemRed : (entry.status == .imported ? .systemGreen : .black)
+        statusBadge.tint = entry.cachedVerification || entry.otherCard || (entry.missingDate && entry.status != .imported) ? Theme.warn : (entry.status == .imported ? Theme.good : nil)
         let dimmed = entry.status == .imported || entry.status == .sourceDuplicate
         imageView.alphaValue = dimmed ? 0.45 : 1
         updateCheck()
-        toolTip = ((entry.cachedVerification ? ["Cached match: file attributes and samples are unchanged. Import rechecks full contents; File > Full Verification bypasses the cache."] : []) + [entry.name + " — " + entry.kinds, entry.detail] + (entry.dateOrigin.map { ["Date from " + $0] } ?? [])
-            + (entry.destination.map { ["→ " + $0] } ?? [])).joined(separator: "\n")
+        var tips: [String] = []
+        if entry.otherCard {
+            tips.append(
+                "Copy from the camera's other card: it matches an imported file's camera serial number, capture time, metadata, size, and samples, but differs in card-slot metadata. Selecting it imports a separate copy."
+            )
+        }
+        if entry.cachedVerification {
+            tips.append(
+                "Cached match: file attributes and samples are unchanged. Selected files are fully checked during import. Unselected previous imports reuse unexpired verification after fresh checks. File > Full Verification rereads complete contents."
+            )
+        }
+        tips += [entry.name + " — " + entry.kinds, entry.detail]
+        if let origin = entry.dateOrigin { tips.append("Date from " + origin) }
+        if let destination = entry.destination { tips.append("→ " + destination) }
+        toolTip = tips.joined(separator: "\n")
         setAccessibilityLabel("\(entry.name), \(entry.kinds), \(entry.detail)\(statusText.map { ", " + $0 } ?? "")")
     }
 
@@ -199,11 +218,13 @@ final class GroupTileView: NSView {
         check.isHidden = !entry.selectable
         let name = isChecked ? "checkmark.circle.fill" : "circle"
         let configuration = NSImage.SymbolConfiguration(pointSize: 17, weight: .semibold)
-            .applying(isChecked ? .init(paletteColors: [.white, .controlAccentColor]) : .init(paletteColors: [.white]))
+            .applying(isChecked ? .init(paletteColors: [Theme.ground, Theme.accent]) : .init(paletteColors: [.white]))
         check.image = NSImage(systemSymbolName: name, accessibilityDescription: isChecked ? "Selected" : "Not selected")?.withSymbolConfiguration(configuration)
-        check.shadow = { let shadow = NSShadow(); shadow.shadowBlurRadius = 2; shadow.shadowColor = .black.withAlphaComponent(0.5); return shadow }()
+        check.shadow = {
+            let shadow = NSShadow(); shadow.shadowBlurRadius = 2; shadow.shadowColor = .black.withAlphaComponent(0.5); return shadow
+        }()
         frameView.layer?.borderWidth = isChecked ? 3 : 0
-        frameView.layer?.borderColor = NSColor.controlAccentColor.cgColor
+        frameView.layer?.borderColor = Theme.accent.cgColor
         setAccessibilityValue(isChecked)
         setAccessibilityEnabled(entry.selectable)
     }
@@ -217,7 +238,7 @@ final class GroupTileView: NSView {
             imageView.image = NSImage(systemSymbolName: isVideo ? "video" : "photo", accessibilityDescription: nil)?
                 .withSymbolConfiguration(.init(pointSize: 28, weight: .light))
             imageView.imageScaling = .scaleNone
-            imageView.contentTintColor = .tertiaryLabelColor
+            imageView.contentTintColor = Theme.muted
         }
     }
 
@@ -226,21 +247,32 @@ final class GroupTileView: NSView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
+/// A capsule badge on a photo: a status colour with ground text, or (without a tint) text on a ground scrim.
 final class Pill: NSView {
     private let label = NSTextField(labelWithString: "")
-    var text: String { get { label.stringValue } set { label.stringValue = newValue; isHidden = newValue.isEmpty } }
-    var tint: NSColor = .black { didSet { layer?.backgroundColor = tint.withAlphaComponent(tint == .black ? 0.62 : 0.85).cgColor } }
+    var text: String {
+        get { label.stringValue }
+        set { label.stringValue = newValue; isHidden = newValue.isEmpty }
+    }
+    var tint: NSColor? { didSet { applyTint() } }
     override init(frame: NSRect) {
         super.init(frame: frame)
-        wantsLayer = true; layer?.cornerRadius = 4
-        label.font = .systemFont(ofSize: 9.5, weight: .semibold); label.textColor = .white
+        wantsLayer = true
+        label.font = Theme.font("badge")
         label.lineBreakMode = .byTruncatingTail
         label.translatesAutoresizingMaskIntoConstraints = false; addSubview(label)
-        NSLayoutConstraint.activate([label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 5), label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -5),
-                                     label.topAnchor.constraint(equalTo: topAnchor, constant: 2), label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2)])
-        tint = .black
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 7), label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -7),
+            label.topAnchor.constraint(equalTo: topAnchor, constant: 2), label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2),
+        ])
+        applyTint()
     }
     required init?(coder: NSCoder) { fatalError() }
+    override func layout() { super.layout(); layer?.cornerRadius = bounds.height / 2 }
+    private func applyTint() {
+        layer?.backgroundColor = (tint ?? Theme.ground.withAlphaComponent(0.8)).cgColor
+        label.textColor = tint == nil ? Theme.text : Theme.ground
+    }
 }
 
 final class GroupTileItem: NSCollectionViewItem {
@@ -262,8 +294,8 @@ final class SectionHeader: NSView, NSCollectionViewElement {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        title.font = .systemFont(ofSize: 13, weight: .semibold)
-        detail.font = .systemFont(ofSize: 12); detail.textColor = .secondaryLabelColor
+        title.font = Theme.font("strong"); title.textColor = Theme.text
+        detail.font = Theme.font("secondary"); detail.textColor = Theme.muted
         let row = NSStackView(views: [title, detail]); row.spacing = 8; row.alignment = .firstBaseline
         row.translatesAutoresizingMaskIntoConstraints = false; addSubview(row)
         NSLayoutConstraint.activate([row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 20), row.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6)])

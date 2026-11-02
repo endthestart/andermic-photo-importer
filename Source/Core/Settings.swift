@@ -9,6 +9,12 @@ enum CardInsertionBehavior: String, Codable, CaseIterable {
     case scanInBackground
 }
 
+/// ADR-0014: photos that differ from an imported file only in the camera's card-slot metadata.
+enum OtherCardCopies: String, Codable, CaseIterable {
+    case showAsNew
+    case treatAsImported
+}
+
 struct ImportPreset: Codable, Equatable {
     var name: String
     var destination: String
@@ -34,6 +40,7 @@ struct Settings: Codable, Equatable {
     var cardInsertion = CardInsertionBehavior.scanInBackground
     var launchInBackground = true
     var presets: [ImportPreset] = []
+    var otherCardCopies = OtherCardCopies.showAsNew
 
     init() {}
 
@@ -51,39 +58,45 @@ struct Settings: Codable, Equatable {
         cardInsertion = (try? values.decodeIfPresent(CardInsertionBehavior.self, forKey: .cardInsertion)) ?? .showAndScan
         launchInBackground = try values.decodeIfPresent(Bool.self, forKey: .launchInBackground) ?? defaults.launchInBackground
         presets = (try? values.decodeIfPresent([ImportPreset].self, forKey: .presets)) ?? []
+        otherCardCopies = (try? values.decodeIfPresent(OtherCardCopies.self, forKey: .otherCardCopies)) ?? .showAsNew
         if destination.isEmpty { destination = defaults.destination }
         if folderTemplate.isEmpty { folderTemplate = defaults.folderTemplate }
     }
 
-    /// `-AndermicSettingsDirectory <path>` isolates settings and reports, for example during GUI testing.
+    /// `-CorvusSettingsDirectory <path>` isolates settings and reports, for example during GUI testing.
     static var overrideDirectory: URL? {
-        UserDefaults.standard.string(forKey: "AndermicSettingsDirectory").map { URL(fileURLWithPath: $0, isDirectory: true) }
+        UserDefaults.standard.string(forKey: "CorvusSettingsDirectory").map { URL(fileURLWithPath: $0, isDirectory: true) }
     }
     static var directory: URL {
-        overrideDirectory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Andermic Photo Importer", isDirectory: true)
-    }
-    /// The prototype's directory. Read once for migration; never modified or deleted.
-    static var legacyDirectory: URL {
-        overrideDirectory?.appendingPathComponent("Photo Import (legacy)", isDirectory: true)
+        overrideDirectory
             ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Photo Import", isDirectory: true)
+            .appendingPathComponent("Corvus", isDirectory: true)
+    }
+    /// Earlier names' directories, newest first. The first readable one is adopted once; none is modified or deleted.
+    static var legacyDirectories: [URL] {
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        return ["Andermic Photo Importer", "Photo Import"].map { name in
+            overrideDirectory?.appendingPathComponent("\(name) (legacy)", isDirectory: true)
+                ?? support.appendingPathComponent(name, isDirectory: true)
+        }
     }
     static var reportsDirectory: URL { directory.appendingPathComponent("Reports", isDirectory: true) }
 
-    static func load(directory: URL = Settings.directory, legacyDirectory: URL = Settings.legacyDirectory) -> Settings {
+    static func load(directory: URL = Settings.directory, legacyDirectories: [URL] = Settings.legacyDirectories) -> Settings {
         let url = directory.appendingPathComponent("settings.json")
         var value: Settings
         if let data = try? Data(contentsOf: url) {
-            if let decoded = try? JSONDecoder().decode(Settings.self, from: data) { value = decoded }
-            else {
+            if let decoded = try? JSONDecoder().decode(Settings.self, from: data) {
+                value = decoded
+            } else {
                 // Keep an unreadable file for inspection rather than silently replacing it.
                 let backup = directory.appendingPathComponent("settings-unreadable-\(Int(Date().timeIntervalSince1970)).json")
                 try? FileManager.default.copyItem(at: url, to: backup)
                 value = Settings()
             }
-        } else if let data = try? Data(contentsOf: legacyDirectory.appendingPathComponent("settings.json")),
-                  let legacy = try? JSONDecoder().decode(Settings.self, from: data) {
+        } else if let legacy = legacyDirectories.lazy.compactMap({ legacy in
+            (try? Data(contentsOf: legacy.appendingPathComponent("settings.json"))).flatMap { try? JSONDecoder().decode(Settings.self, from: $0) }
+        }).first {
             value = legacy
             value.schemaVersion = schema
             try? value.save(to: directory)

@@ -4,8 +4,9 @@ import ImageCaptureCore
 protocol CameraImportSource: AnyObject {
     var name: String { get }
     var url: URL { get }
-    func prepare(cancellation: Cancellation, progress: @escaping (ImportProgress) -> Void,
-                 completion: @escaping (Result<CameraSnapshot, Error>) -> Void)
+    func prepare(
+        cancellation: Cancellation, progress: @escaping (ImportProgress) -> Void,
+        completion: @escaping (Result<CameraSnapshot, Error>) -> Void)
 }
 
 /// Image Capture/PTP sources are not mounted volumes. Discovery alone never opens
@@ -19,7 +20,7 @@ final class CameraMonitor: NSObject, ICDeviceBrowserDelegate {
     func start() {
         #if UI_AUTOMATION
         // GUI fixtures must never discover/open the owner's connected cameras.
-        if UserDefaults.standard.string(forKey: "AndermicUIScript") != nil { return }
+        if UserDefaults.standard.string(forKey: "CorvusUIScript") != nil { return }
         #endif
         browser.delegate = self
         browser.browsedDeviceTypeMask = ICDeviceTypeMask(rawValue: ICDeviceTypeMask.camera.rawValue | ICDeviceLocationTypeMask.local.rawValue)!
@@ -56,7 +57,7 @@ final class CameraSource: NSObject, ICCameraDeviceDelegate, CameraImportSource {
 
     init(_ device: ICCameraDevice) {
         self.device = device; name = device.name ?? "USB camera"
-        var parts = URLComponents(); parts.scheme = "andermic-camera"; parts.host = UUID().uuidString
+        var parts = URLComponents(); parts.scheme = "corvus-camera"; parts.host = UUID().uuidString
         parts.path = "/" + (device.name ?? "USB camera")
         url = parts.url!
         super.init()
@@ -64,8 +65,10 @@ final class CameraSource: NSObject, ICCameraDeviceDelegate, CameraImportSource {
         device.mediaPresentation = .originalAssets
     }
 
-    func prepare(cancellation: Cancellation, progress: @escaping (ImportProgress) -> Void,
-                 completion: @escaping (Result<CameraSnapshot, Error>) -> Void) {
+    func prepare(
+        cancellation: Cancellation, progress: @escaping (ImportProgress) -> Void,
+        completion: @escaping (Result<CameraSnapshot, Error>) -> Void
+    ) {
         token?.cancel(); token = cancellation
         let finish: (Result<CameraSnapshot, Error>) -> Void = { result in
             DispatchQueue.main.async { completion(result) }
@@ -80,7 +83,8 @@ final class CameraSource: NSObject, ICCameraDeviceDelegate, CameraImportSource {
                 let catalogRevision = revision
                 DispatchQueue.global(qos: .userInitiated).async { [self] in
                     do {
-                        let snapshot = try CameraStaging.prepare(objects, camera: url.absoluteString, cancellation: cancellation,
+                        let snapshot = try CameraStaging.prepare(
+                            objects, camera: url.absoluteString, cancellation: cancellation,
                             read: { object, offset, length in
                                 try read(files[object.id]!, offset: offset, length: length, revision: catalogRevision, cancellation: cancellation)
                             }, progress: progress)
@@ -130,7 +134,8 @@ final class CameraSource: NSObject, ICCameraDeviceDelegate, CameraImportSource {
             let parent = item.parentFolder
             // Record before traversing parent/child links: their two-way links
             // are expected. CameraCatalog separately rejects ancestry cycles.
-            items[id] = CameraCatalogItem(id: id, folder: folder != nil, name: item.name,
+            items[id] = CameraCatalogItem(
+                id: id, folder: folder != nil, name: item.name,
                 originalName: file?.originalFilename, size: Int64(file?.fileSize ?? 0),
                 parent: parent.map(key), children: children.map(key), handle: item.ptpObjectHandle)
             if let file { files[id] = file }
@@ -156,9 +161,7 @@ final class CameraSource: NSObject, ICCameraDeviceDelegate, CameraImportSource {
                 reply.set(.failure(ImportError("The camera changed or was disconnected. Scan again."))); semaphore.signal(); return
             }
             file.requestReadData(atOffset: off_t(offset), length: off_t(length)) { data, error in
-                if let error { reply.set(.failure(error)) }
-                else if let data { reply.set(.success(data)) }
-                else { reply.set(.failure(ImportError("The camera did not return original data."))) }
+                if let error { reply.set(.failure(error)) } else if let data { reply.set(.success(data)) } else { reply.set(.failure(ImportError("The camera did not return original data."))) }
                 semaphore.signal()
             }
         }

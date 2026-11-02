@@ -5,11 +5,13 @@ import AppKit
 /// No Image Capture device is constructed or accessed by this fixture.
 final class FixtureCameraSource: CameraImportSource {
     let name = "Synthetic Z 8 (USB)"
-    let url = URL(string: "andermic-camera://synthetic/Z%208")!
+    let url = URL(string: "corvus-camera://synthetic/Z%208")!
     let directory: URL
     init(_ directory: URL) { self.directory = directory }
-    func prepare(cancellation: Cancellation, progress: @escaping (ImportProgress) -> Void,
-                 completion: @escaping (Result<CameraSnapshot, Error>) -> Void) {
+    func prepare(
+        cancellation: Cancellation, progress: @escaping (ImportProgress) -> Void,
+        completion: @escaping (Result<CameraSnapshot, Error>) -> Void
+    ) {
         DispatchQueue.global(qos: .userInitiated).async { [self] in
             let result = Result { () throws -> CameraSnapshot in
                 let (files, _) = try Importer.files(in: directory, allowed: MediaTypes.importable, cancellation: cancellation)
@@ -31,13 +33,15 @@ final class FixtureCameraSource: CameraImportSource {
                     catalog[object.id] = CameraCatalogItem(id: object.id, folder: false, name: object.name, size: object.size, parent: parent)
                 }
                 let originals = try CameraCatalog.collect(hierarchy: [], media: objects.map(\.id), items: catalog)
-                return try CameraStaging.prepare(originals, camera: url.absoluteString, cancellation: cancellation,
-                    temporaryRoot: directory.deletingLastPathComponent(), read: { object, offset, count in
-                    let input = try FileHandle(forReadingFrom: inputs[object.id]!)
-                    defer { try? input.close() }
-                    try input.seek(toOffset: UInt64(offset))
-                    return try input.read(upToCount: count) ?? Data()
-                }, progress: progress)
+                return try CameraStaging.prepare(
+                    originals, camera: url.absoluteString, cancellation: cancellation,
+                    temporaryRoot: directory.deletingLastPathComponent(),
+                    read: { object, offset, count in
+                        let input = try FileHandle(forReadingFrom: inputs[object.id]!)
+                        defer { try? input.close() }
+                        try input.seek(toOffset: UInt64(offset))
+                        return try input.read(upToCount: count) ?? Data()
+                    }, progress: progress)
             }
             DispatchQueue.main.async { completion(result) }
         }
@@ -62,8 +66,9 @@ final class UIAutomation {
     let savedPasteboard: [[NSPasteboard.PasteboardType: Data]]
 
     init?(controller: MainWindowController) {
-        guard let path = UserDefaults.standard.string(forKey: "AndermicUIScript"),
-              let text = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
+        guard let path = UserDefaults.standard.string(forKey: "CorvusUIScript"),
+            let text = try? String(contentsOfFile: path, encoding: .utf8)
+        else { return nil }
         self.controller = controller
         savedPasteboard = (NSPasteboard.general.pasteboardItems ?? []).map { item in
             Dictionary(uniqueKeysWithValues: item.types.compactMap { type in item.data(forType: type).map { (type, $0) } })
@@ -76,7 +81,7 @@ final class UIAutomation {
         fixtureInputMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { _ in nil }
         controller.window?.setContentSize(NSSize(width: 1300, height: 780)); controller.window?.center()
         let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in self?.tick() }
-        RunLoop.main.add(timer, forMode: .common)   // keeps running inside modal alerts
+        RunLoop.main.add(timer, forMode: .common)  // keeps running inside modal alerts
     }
 
     func write(_ text: String) {
@@ -89,9 +94,10 @@ final class UIAutomation {
     func restorePasteboard() {
         if let fixtureInputMonitor { NSEvent.removeMonitor(fixtureInputMonitor); self.fixtureInputMonitor = nil }
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.writeObjects(savedPasteboard.map { saved in
-            let item = NSPasteboardItem(); for (type, data) in saved { item.setData(data, forType: type) }; return item
-        })
+        NSPasteboard.general.writeObjects(
+            savedPasteboard.map { saved in
+                let item = NSPasteboardItem(); for (type, data) in saved { item.setData(data, forType: type) }; return item
+            })
     }
 
     func menuItem(_ title: String, in menu: NSMenu? = NSApp.mainMenu) -> NSMenuItem? {
@@ -122,7 +128,8 @@ final class UIAutomation {
         controller.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: controller.eventField))
         func invoke(_ title: String) {
             guard let item = menuItem(title), let action = item.action,
-                  let handler = NSApp.target(forAction: action, to: item.target, from: item) else {
+                let handler = NSApp.target(forAction: action, to: item.target, from: item)
+            else {
                 write("FAIL editing menu \(title): no target"); return
             }
             if let validator = handler as? NSMenuItemValidation, !validator.validateMenuItem(item) {
@@ -175,8 +182,10 @@ final class UIAutomation {
             for id in 0..<754 {
                 var file = reference; file.existing = id < 696 ? URL(fileURLWithPath: controller.settings.destination).appendingPathComponent("synthetic-existing.JPG") : nil
                 files.append(file)
-                groups.append(PhotoGroup(id: id, name: String(format: "STRESS_%04d", id), directory: reference.source.deletingLastPathComponent(), members: [id],
-                    date: reference.date, dateOrigin: reference.dateOrigin, folder: reference.folder, status: id < 696 ? .imported : .new))
+                groups.append(
+                    PhotoGroup(
+                        id: id, name: String(format: "STRESS_%04d", id), directory: reference.source.deletingLastPathComponent(), members: [id],
+                        date: reference.date, dateOrigin: reference.dateOrigin, folder: reference.folder, status: id < 696 ? .imported : .new))
             }
             plan.files = files; plan.groups = groups
             controller.plan = plan; controller.preliminary = nil; controller.state = .idle
@@ -215,8 +224,10 @@ final class UIAutomation {
                     if button.isHiddenOrHasHiddenAncestor || frame.width + 0.5 < button.fittingSize.width || !content.bounds.contains(frame) {
                         write("FAIL selection button clipped: \(button.title)")
                     }
-                    if let previous, previous.intersects(frame) { write("FAIL overlapping selection buttons") }
-                    previous = frame
+                    // Frames include the bezel's invisible padding; alignment rects are what the user sees.
+                    let visible = button.alignmentRect(forFrame: frame)
+                    if let previous, previous.intersects(visible) { write("FAIL overlapping selection buttons") }
+                    previous = visible
                 }
             }
             write("ok grid integrity visibleTiles=\(tiles.count)")
@@ -229,44 +240,51 @@ final class UIAutomation {
             let fixture = FixtureCameraSource(URL(fileURLWithPath: argument))
             controller.camerasChanged([fixture], inserted: fixture)
         case "cameraSelect":
-            if let index = controller.sidebarRows.firstIndex(where: { $0.url?.scheme == "andermic-camera" }) {
+            if let index = controller.sidebarRows.firstIndex(where: { $0.url?.scheme == "corvus-camera" }) {
                 controller.sidebar.selectRowIndexes([index], byExtendingSelection: false); controller.sidebarClicked()
-            } else { write("FAIL synthetic camera missing from sidebar") }
+            } else {
+                write("FAIL synthetic camera missing from sidebar")
+            }
         case "cameraRemove":
             if let camera = controller.cameras.first { controller.cameraRemoved(camera); controller.camerasChanged([], inserted: nil) }
         case "toggle":
             let item = controller.collection.visibleItems().compactMap { $0 as? GroupTileItem }.first { $0.tile.entry?.name == argument }
-            if let item { _ = item.tile.accessibilityPerformPress(); retries = 0 }
-            else if retries < 8, let section = controller.sections.firstIndex(where: { $0.entries.contains { $0.name == argument } }),
-                    let row = controller.sections[section].entries.firstIndex(where: { $0.name == argument }) {
+            if let item {
+                _ = item.tile.accessibilityPerformPress(); retries = 0
+            } else if retries < 8, let section = controller.sections.firstIndex(where: { $0.entries.contains { $0.name == argument } }),
+                let row = controller.sections[section].entries.firstIndex(where: { $0.name == argument })
+            {
                 // Scroll the tile into view, as a user would, then press it on a later tick.
                 retries += 1
                 controller.collection.scrollToItems(at: [IndexPath(item: row, section: section)], scrollPosition: .centeredVertically)
                 steps.insert(step, at: 0); return
-            } else { write("FAIL toggle \(argument): tile not found"); retries = 0 }
-        case "click", "check":   // check toggles a checkbox's state before sending its action, as a click would
+            } else {
+                write("FAIL toggle \(argument): tile not found"); retries = 0
+            }
+        case "click", "check":  // check toggles a checkbox's state before sending its action, as a click would
             if let target = button(argument), target.isEnabled {
                 write("ok \(step)")
                 if parts[0] == "check" { target.state = target.state == .on ? .off : .on }
                 _ = target.sendAction(target.action, to: target.target)
                 return
+            } else {
+                write("FAIL click \(argument): \(button(argument) == nil ? "not found" : "disabled")")
             }
-            else { write("FAIL click \(argument): \(button(argument) == nil ? "not found" : "disabled")") }
-        case "popup":   // popup <date|type|structure> <index>
+        case "popup":  // popup <date|type|structure> <index>
             let fields = argument.split(separator: " ")
             let popup = ["date": controller.datePopup, "type": controller.typePopup, "structure": controller.structurePopup, "card": controller.cardBehaviorPopup][String(fields[0])]!
             popup.selectItem(at: Int(fields[1])!); _ = popup.sendAction(popup.action, to: popup.target)
         case "setDate":
             controller.fallbackPicker.dateValue = ISO8601DateFormatter().date(from: argument + "T12:00:00Z")!
             _ = controller.fallbackPicker.sendAction(controller.fallbackPicker.action, to: controller.fallbackPicker.target)
-        case "type":    // type event <text>
+        case "type":  // type event <text>
             let fields = argument.split(separator: " ", maxSplits: 1).map(String.init)
             let field = fields[0] == "event" ? controller.eventField : controller.templateField
             field.stringValue = fields.count > 1 ? fields[1] : ""
             controller.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
         case "editing": exerciseEditing(argument)
         case "rescan": controller.rescan()
-        case "menu":   // invoke a main-menu item exactly as AppKit does, including responder-chain routing
+        case "menu":  // invoke a main-menu item exactly as AppKit does, including responder-chain routing
             guard let item = menuItem(argument), let action = item.action else { write("FAIL menu \(argument): not found"); break }
             // A user can only use the menu bar while the app is active with a key window.
             if !NSApp.isActive || NSApp.keyWindow == nil {
@@ -295,13 +313,14 @@ final class UIAutomation {
             retries = 0
         case "tray":
             guard let tray = (NSApp.delegate as? AppDelegate)?.statusItem.menu,
-                  let item = menuItem(argument, in: tray), let action = item.action else { write("FAIL tray item not found"); break }
+                let item = menuItem(argument, in: tray), let action = item.action
+            else { write("FAIL tray item not found"); break }
             NSApp.sendAction(action, to: item.target, from: item)
         case "closeNotices": (NSApp.delegate as? AppDelegate)?.notices?.window?.performClose(nil)
         case "close": controller.window?.performClose(nil)
         case "card": controller.cardsChanged([URL(fileURLWithPath: argument)], inserted: URL(fileURLWithPath: argument))
         case "deminiaturize": controller.window?.deminiaturize(nil)
-        case "expect":   // expect <key> <value>
+        case "expect":  // expect <key> <value>
             let fields = argument.split(separator: " ", maxSplits: 1).map(String.init)
             let expected = fields.count > 1 ? fields[1] : ""
             let editor = controller.eventField.currentEditor() as? NSTextView
@@ -316,43 +335,69 @@ final class UIAutomation {
             case "tray": actual = String((NSApp.delegate as? AppDelegate)?.statusItem.button != nil)
             case "groups": actual = String(controller.plan?.groups.count ?? 0)
             case "hasSource": actual = String(controller.source != nil)
-            case "cameraSource": actual = String(controller.source?.scheme == "andermic-camera")
+            case "cameraSource": actual = String(controller.source?.scheme == "corvus-camera")
             case "ejectEnabled": actual = String(controller.ejectCheck.isEnabled)
             case "backgroundLaunch": actual = String(controller.settings.launchInBackground)
             case "visible": actual = String(controller.window!.isVisible)
+            case "cachedDates": actual = String(controller.plan?.scanReads.cachedCaptureDates ?? 0)
             case "cachedGroups": actual = String(controller.plan?.cachedGroups ?? 0)
-            case "cacheSavings": actual = String((controller.plan?.cachedGroups ?? 0) > 0 && (controller.plan?.scanReads.hashedBytes ?? 0) < (controller.plan?.files.reduce(UInt64(0)) { $0 + $1.size } ?? 0))
+            case "cacheSavings":
+                actual = String((controller.plan?.cachedGroups ?? 0) > 0 && (controller.plan?.scanReads.hashedBytes ?? 0) < (controller.plan?.files.reduce(UInt64(0)) { $0 + $1.size } ?? 0))
             case "fullRead": actual = String((controller.plan?.scanReads.hashedBytes ?? 0) > 0)
             case "selected": actual = String(controller.visibleSelection.count)
             case "fallbackVisible": actual = String(!controller.fallbackBox.isHidden)
             case "importSelected": actual = "\(controller.importSelectedButton.title)|\(controller.importSelectedButton.isEnabled)"
-            case "status": actual = controller.plan.map { plan in plan.groups.first { $0.name == expected.split(separator: "=")[0].description }.map { "\($0.name)=\($0.status.rawValue)" } ?? "missing" } ?? "no plan"
+            case "status":
+                actual =
+                    controller.plan.map { plan in plan.groups.first { $0.name == expected.split(separator: "=")[0].description }.map { "\($0.name)=\($0.status.rawValue)" } ?? "missing" } ?? "no plan"
             default: actual = "unknown key"
             }
-            let context = ["event", "selectedText"].contains(fields[0])
-                ? " (first responder \(String(describing: type(of: controller.window?.firstResponder as AnyObject))), field '\(controller.eventField.stringValue)', editor delegate \(String(describing: type(of: (editor?.delegate as AnyObject?) as AnyObject))))" : ""
+            let context =
+                ["event", "selectedText"].contains(fields[0])
+                ? " (first responder \(String(describing: type(of: controller.window?.firstResponder as AnyObject))), field '\(controller.eventField.stringValue)', editor delegate \(String(describing: type(of: (editor?.delegate as AnyObject?) as AnyObject))))"
+                : ""
             write(actual == expected ? "ok expect \(fields[0]) \(expected)" : "FAIL expect \(fields[0]): wanted '\(expected)', got '\(actual)'\(context)")
             return
         case "advanced": controller.showAdvanced()
         case "notices": (NSApp.delegate as? AppDelegate)?.showNotices()
-        case "snapKey":   // the key window, such as Third-Party Notices
-            write("SNAP \(argument) \(NSApp.keyWindow?.windowNumber ?? controller.window!.windowNumber) 0")
-            waitingFor = log.deletingLastPathComponent().appendingPathComponent(argument + ".done")
+        case "snapKey":  // Third-Party Notices, even if this app is not frontmost
+            snapshot((NSApp.delegate as? AppDelegate)?.notices?.window ?? NSApp.keyWindow ?? controller.window!, named: argument)
         case "shell":
             write("SHELL \(argument)")
             waitingFor = log.deletingLastPathComponent().appendingPathComponent(argument + ".done")
         case "snap":
-            let sheet = controller.window?.attachedSheet ?? NSApp.modalWindow
-            write("SNAP \(argument) \(controller.window!.windowNumber) \(sheet?.windowNumber ?? 0)")
-            waitingFor = log.deletingLastPathComponent().appendingPathComponent(argument + ".done")
+            snapshot(controller.window!, named: argument)
         case "state":
             let plan = controller.plan
-            write("STATE \(argument): groups=\(plan?.groups.count ?? 0) new=\(plan?.newGroups.count ?? 0) importable=\(plan?.importableNewGroups.count ?? 0) selected=\(controller.visibleSelection.count) imported=\(plan?.groups.filter { $0.status == .imported }.count ?? 0) importSelected='\(controller.importSelectedButton.title)' enabled=\(controller.importSelectedButton.isEnabled) importAll='\(controller.importAllButton.title)' enabled=\(controller.importAllButton.isEnabled) status='\(controller.statusLabel.stringValue)' selection='\(controller.selectionLabel.stringValue)'")
-        case "alert": write("ALERT \(((NSApp.modalWindow ?? controller.window?.attachedSheet)?.contentView).map { views($0).compactMap { ($0 as? NSTextField)?.stringValue }.joined(separator: " | ") } ?? "none")")
+            write(
+                "STATE \(argument): groups=\(plan?.groups.count ?? 0) new=\(plan?.newGroups.count ?? 0) importable=\(plan?.importableNewGroups.count ?? 0) selected=\(controller.visibleSelection.count) imported=\(plan?.groups.filter { $0.status == .imported }.count ?? 0) importSelected='\(controller.importSelectedButton.title)' enabled=\(controller.importSelectedButton.isEnabled) importAll='\(controller.importAllButton.title)' enabled=\(controller.importAllButton.isEnabled) status='\(controller.statusLabel.stringValue)' selection='\(controller.selectionLabel.stringValue)'"
+            )
+        case "alert":
+            write(
+                "ALERT \(((NSApp.modalWindow ?? controller.window?.attachedSheet)?.contentView).map { views($0).compactMap { ($0 as? NSTextField)?.stringValue }.joined(separator: " | ") } ?? "none")")
         case "quit": restorePasteboard(); write("DONE"); controller.quitAfterWork = false; NSApp.terminate(nil)
         default: write("FAIL unknown step \(step)")
         }
         write("ok \(step)")
+    }
+
+    /// Saves one of this app's windows once it settles. A process can capture its own windows
+    /// without macOS's Screen Recording permission, which `screencapture` would need.
+    func snapshot(_ window: NSWindow, named name: String) {
+        let number = CGWindowID(window.windowNumber)
+        waitingFor = log.deletingLastPathComponent().appendingPathComponent(name + ".done")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [self] in
+            let folder = UserDefaults.standard.string(forKey: "CorvusUIScreens").map { URL(fileURLWithPath: $0, isDirectory: true) }
+            if let folder, let image = CGWindowListCreateImage(.null, .optionIncludingWindow, number, [.boundsIgnoreFraming, .bestResolution]),
+                let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]),
+                (try? png.write(to: folder.appendingPathComponent(name + ".png"))) != nil
+            {
+                write("SNAP \(name) \(number)")
+            } else {
+                write("FAIL snap \(name): could not save window \(number)")
+                write("SNAP \(name) \(number)")
+            }
+        }
     }
 }
 #endif

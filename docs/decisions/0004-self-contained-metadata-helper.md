@@ -8,13 +8,13 @@ ADR-0003 requires a self-contained app: no Homebrew, separately installed ExifTo
 
 ## Decision
 
-- `scripts/metadata-helper.lock` pins Perl 5.44.0 and ExifTool 13.59 by version and upstream SHA-256 (Perl from cpan.org's published `.sha256.txt`; ExifTool from exiftool.org's `checksums.txt`). `scripts/build-metadata-helper.sh` downloads them (ExifTool from its SourceForge release archive, which keeps every version, with exiftool.org and CPAN as fallbacks verified against the same hash) and refuses any mismatch.
+- `scripts/metadata-helper.lock` pins Perl 5.44.0 and ExifTool 13.60 by version and upstream SHA-256 (Perl from cpan.org's published `.sha256.txt`; ExifTool from exiftool.org's `checksums.txt`). `scripts/build-metadata-helper.sh` downloads them (ExifTool from its SourceForge release archive, which keeps every version, with exiftool.org and CPAN as fallbacks verified against the same hash) and refuses any mismatch.
 - Perl is built unmodified from source for the build machine's architecture with `-Duserelocatableinc`, a macOS 13 deployment target, no local/Homebrew include or library paths, and without the optional DB_File/GDBM/NDBM/ODBM extensions. `@INC` is derived from the interpreter's own location, so the runtime works from inside the bundle.
 - The app contains `Contents/Resources/MetadataHelper/` with the interpreter, its complete standard library (documentation pods, headers, the static `libperl.a`, and auxiliary scripts omitted), unmodified ExifTool, `licenses/` (Perl Artistic License, GPL v1, Perl README, ExifTool README), and `manifest.json` recording versions, sources, hashes, licenses, and omissions.
 - The app runs the bundled interpreter with the bundled script by absolute path, with `-config ""` and an environment of only `PATH=/usr/bin:/bin` and `LC_ALL=C`, so `PERL5LIB`, `PERL5OPT`, and user ExifTool configuration cannot affect it. It never searches `PATH`, Homebrew, or the system Perl. The ExifTool path setting is removed.
 - The build signs every nested Mach-O (the interpreter and 48 XS `.bundle` modules) before sealing the app; Developer ID builds sign them with hardened runtime and timestamps.
 - Tests and CI use the same helper the app bundles. `verify-package.sh` checks the extracted archive's manifest against the lock file, every nested binary's architecture, signature, and system-only linkage, keeps `@INC` inside the bundle, and runs the packaged app's `--verify-metadata-helper` mode under `env -i` on a fixture whose date only ExifTool can supply.
-- About and Help → Third-Party Notices show component versions, sources, hashes, changes, and the full license texts.
+- About and Corvus → Third-Party Notices (the app menu; Help until 2026-10-30) show component versions, sources, hashes, changes, and the full license texts.
 
 ## Consequences
 

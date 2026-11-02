@@ -12,7 +12,7 @@ build_number="${BUILD_NUMBER:-1}"
 if [[ ! "$build_number" =~ ^[0-9]+$ ]]; then echo 'BUILD_NUMBER must be numeric.' >&2; exit 1; fi
 architecture="$(uname -m)"
 case "$architecture" in arm64|x86_64) ;; *) echo "Unsupported architecture: $architecture" >&2; exit 1 ;; esac
-app_path="dist/Andermic Photo Importer.app"
+app_path="dist/Corvus.app"
 mkdir -p build dist
 ./scripts/build-metadata-helper.sh
 helper="build/metadata-helper/$architecture/MetadataHelper"
@@ -22,7 +22,7 @@ mkdir -p "$app_path/Contents/MacOS" "$app_path/Contents/Resources"
 xcrun swiftc -swift-version 5 -O -target "${architecture}-apple-macosx13.0" \
     -module-cache-path build/module-cache \
     Source/Core/*.swift Source/App/*.swift \
-    -o "$app_path/Contents/MacOS/PhotoImport"
+    -o "$app_path/Contents/MacOS/corvus"
 
 iconset="build/AppIcon.iconset"
 mkdir -p "$iconset"
@@ -36,10 +36,11 @@ cat > "$app_path/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-<key>CFBundleExecutable</key><string>PhotoImport</string>
-<key>CFBundleIdentifier</key><string>net.andermic.photoimporter</string>
-<key>CFBundleName</key><string>Andermic Photo Importer</string>
-<key>CFBundleDisplayName</key><string>Andermic Photo Importer</string>
+<key>CFBundleExecutable</key><string>corvus</string>
+<key>CFBundleIdentifier</key><string>com.senexapps.corvus</string>
+<key>CFBundleName</key><string>Corvus</string>
+<key>CFBundleDisplayName</key><string>Corvus</string>
+<key>NSHumanReadableCopyright</key><string>© 2026 Michael Anderson · MIT</string>
 <key>CFBundleIconFile</key><string>AppIcon</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>${short_version}</string>
@@ -69,4 +70,4 @@ sign() {
 while IFS= read -r -d '' binary; do sign "$binary"; done < <(find "$app_path/Contents/Resources/MetadataHelper" -type f \( -name perl -o -name '*.bundle' \) -print0)
 sign --entitlements scripts/camera.entitlements "$app_path"
 /usr/bin/codesign --verify --deep --strict "$app_path"
-echo "Built Andermic Photo Importer $version ($architecture)."
+echo "Built Corvus $version ($architecture)."

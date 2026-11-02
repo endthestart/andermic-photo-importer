@@ -41,6 +41,10 @@ jobs:
             build/downloads
             build/metadata-helper/${{ matrix.architecture }}
           key: metadata-helper-${{ matrix.runner }}-${{ matrix.architecture }}-${{ hashFiles('scripts/metadata-helper.lock', 'scripts/build-metadata-helper.sh') }}
+      - name: Check Swift formatting
+        run: |
+          xcrun swift-format --version
+          git ls-files -z '*.swift' | xargs -0 xcrun swift-format lint --strict --configuration .swift-format
       - name: Build pinned Perl and ExifTool helper
         run: |
           xcrun swift --version

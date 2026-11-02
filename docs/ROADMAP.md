@@ -4,7 +4,7 @@ Status: core-first public release accepted on 2026-10-04 and implemented in deve
 
 ## Foundation — existing alpha
 
-- MIT-licensed source repository, native macOS app, and accepted Aperture A branding.
+- MIT-licensed source repository, native macOS app, and the SENEX family design shared with Pictor ([design tokens](DESIGN-TOKENS.md)).
 - Source/destination comparison, content-confirmed duplicate detection, verified copies, and local settings/reports.
 - CI builds/tests/packages Apple silicon and Intel variants.
 - Version tags produce draft source prereleases without app binaries.
@@ -19,8 +19,9 @@ Status: core-first public release accepted on 2026-10-04 and implemented in deve
 - Menu-bar launch by default, optional foreground launch, and a shortcut to user-managed macOS Login Items. Closing the last window hides the Dock icon while keeping work running.
 - Configurable card-insertion behavior: scan in the background by default for new installations, show and scan, or indicate availability only. Existing preferences are preserved. Copying remains an explicit user action.
 - Simple destination comparison and current lightweight reporting; keep advanced history/recovery out of this milestone.
-- Self-contained metadata helper/runtime packaging (pinned Perl 5.44.0 and ExifTool 13.59) and visible open-source notices, with no separate installation required.
+- Self-contained metadata helper/runtime packaging (pinned Perl 5.44.0 and ExifTool 13.60) and visible open-source notices, with no separate installation required.
 - Preserve source files: no delete-after-import option in this release.
+- USB camera import through Image Capture with verified staging, bounded working memory, and a 30-day preview verification cache ([ADR-0008](decisions/0008-usb-camera-originals.md) to [ADR-0011](decisions/0011-expiring-preview-verification-cache.md)).
 
 ## Qualification before public app-binary distribution
 
@@ -44,6 +45,7 @@ Ordering is not yet selected; none blocks the first public release.
 ## Other future possibilities
 
 - Richer menu-bar status, such as counts of new photos ready: explicitly deferred.
+- USB camera previews without staging every original first (a remote source reader with viewport-driven thumbnails); see [performance](PERFORMANCE.md#remaining-performance-work).
 - Linux: possible later platform; retain the native macOS foundation for the first release.
 - Culling: outside the agreed first-release and advanced-import scope. Reconsider only after a separate product decision establishes a concrete need and portable state/interoperability requirements.
-- Domain hosting: choose an owner-controlled Andermic domain/subdomain and hosting service for a small product page with screenshots, setup, release notes, and signed downloads. No DNS changes or website publication are authorized by this discovery work.
+- Domain hosting: choose an owner-controlled SENEX domain, shared with Pictor for bundle identifiers, and a hosting service for a small product page with screenshots, setup, release notes, and signed downloads. No DNS changes or website publication are authorized by this discovery work.

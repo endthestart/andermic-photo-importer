@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 profile="${NOTARY_PROFILE:?Set NOTARY_PROFILE to a stored notarytool Keychain profile name.}"
-app_path="dist/Andermic Photo Importer.app"
+app_path="dist/Corvus.app"
 test -d "$app_path"
 details="$(/usr/bin/codesign -dvv "$app_path" 2>&1)"
 if ! [[ "$details" == *'Authority=Developer ID Application:'* && "$details" == *'runtime'* ]]; then

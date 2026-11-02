@@ -21,8 +21,9 @@ struct MetadataHelper {
         for (url, executable) in [(perl, true), (script, false)] {
             var value = stat()
             guard lstat(url.path, &value) == 0, value.st_mode & S_IFMT == S_IFREG,
-                  !executable || FileManager.default.isExecutableFile(atPath: url.path) else {
-                throw ImportError("The app's built-in metadata reader is missing or damaged (\(url.lastPathComponent)). Reinstall Andermic Photo Importer.")
+                !executable || FileManager.default.isExecutableFile(atPath: url.path)
+            else {
+                throw ImportError("The app's built-in metadata reader is missing or damaged (\(url.lastPathComponent)). Reinstall Corvus.")
             }
         }
     }

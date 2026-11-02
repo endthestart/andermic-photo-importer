@@ -46,8 +46,9 @@ final class CardMonitor {
 
     static func isCard(_ volume: URL) -> Bool {
         guard let values = try? volume.resourceValues(forKeys: [.volumeIsLocalKey, .volumeIsInternalKey, .volumeIsRemovableKey, .volumeIsEjectableKey]),
-              values.volumeIsLocal == true,
-              values.volumeIsRemovable == true || (values.volumeIsEjectable == true && values.volumeIsInternal != true) else { return false }
+            values.volumeIsLocal == true,
+            values.volumeIsRemovable == true || (values.volumeIsEjectable == true && values.volumeIsInternal != true)
+        else { return false }
         return ["DCIM", "dcim", "Dcim"].contains { name in
             var directory: ObjCBool = false
             return FileManager.default.fileExists(atPath: volume.appendingPathComponent(name).path, isDirectory: &directory) && directory.boolValue

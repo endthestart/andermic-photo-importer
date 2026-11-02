@@ -6,7 +6,7 @@ cd "$(dirname "$0")/.."
 root="$(pwd)/build/performance-exercise"
 mkdir -p "$root"
 xcrun swiftc -swift-version 5 -O -module-cache-path build/module-cache \
-    Source/Core/*.swift Source/App/PhotoGrid.swift Tests/Performance/main.swift -o "$root/MemoryTests"
+    Source/Core/*.swift Source/App/PhotoGrid.swift Source/App/Theme.swift Tests/Performance/main.swift -o "$root/MemoryTests"
 "$root/MemoryTests" make-thumbnail "$root"
 : > "$root/results.jsonl"
 for mode in digest paired-digest camera copy thumbnails cache; do

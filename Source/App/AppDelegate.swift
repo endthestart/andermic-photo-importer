@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     #endif
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.appearance = NSAppearance(named: .darkAqua)
         controller = MainWindowController(settings: Settings.load(), helper: MetadataHelper.bundled())
         createMenus()
         controller.onStateChange = { [weak self] in self?.updateStatusItem() }
@@ -30,7 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         automation = UIAutomation(controller: controller)
         #endif
         if controller.helper == nil {
-            controller.showError(ImportError("The app's built-in metadata reader is missing. Reinstall Andermic Photo Importer."))
+            controller.showError("Metadata reader missing", ImportError("The app's built-in metadata reader is missing. Reinstall Corvus."))
         }
     }
 
@@ -82,8 +83,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc func showSettings() { showWindow(); controller.showAdvanced() }
     @objc func showAbout() {
         let versions = controller.helper?.readManifest()?.components.map { "\($0.name) \($0.version)" }.joined(separator: " and ") ?? "no metadata helper"
-        let credits = NSAttributedString(string: "Copies only new photos into ordinary folders and verifies every file. Includes \(versions); see Third-Party Notices.",
-                                         attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor])
+        let credits = NSAttributedString(
+            string: "Copies only new photos into ordinary folders and verifies every file. Includes \(versions); see Third-Party Notices.",
+            attributes: [.font: Theme.font("note"), .foregroundColor: Theme.muted])
         presentWindow()
         NSApp.orderFrontStandardAboutPanel(options: [.credits: credits])
         NSApp.activate(ignoringOtherApps: true)
@@ -132,60 +134,69 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
             return item
         }
-        let name = "Andermic Photo Importer"
-        _ = submenu(name, [
-            item("About \(name)", #selector(showAbout)),
-            item("Third-Party Notices…", #selector(showNotices)),
-            .separator(),
-            item("Settings…", #selector(showSettings), ","),
-            .separator(),
-            item("Hide \(name)", #selector(NSApplication.hide(_:)), "h", target: .object(NSApp)),
-            item("Hide Others", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option], target: .object(NSApp)),
-            item("Show All", #selector(NSApplication.unhideAllApplications(_:)), target: .object(NSApp)),
-            .separator(),
-            item("Quit \(name)", #selector(NSApplication.terminate(_:)), "q", target: .object(NSApp)),
-        ])
-        _ = submenu("File", [
-            item("Choose Source Folder…", #selector(chooseSource), "o"),
-            item("Choose Destination…", #selector(chooseDestination), "o", [.command, .shift]),
-            .separator(),
-            item("Scan Again", #selector(rescan), "r"),
-            item("Full Verification", #selector(fullVerification), "r", [.command, .option]),
-            item("Import Selected", #selector(importSelected), "i"),
-            item("Import All New", #selector(importAllNew), "i", [.command, .shift]),
-            .separator(),
-            item("Close Window", #selector(NSWindow.performClose(_:)), "w", target: .responderChain),
-        ])
-        let edit = submenu("Edit", [
-            item("Undo", Selector(("undo:")), "z", target: .responderChain), item("Redo", Selector(("redo:")), "z", [.command, .shift], target: .responderChain),
-            .separator(),
-            item("Cut", #selector(NSText.cut(_:)), "x", target: .responderChain), item("Copy", #selector(NSText.copy(_:)), "c", target: .responderChain),
-            item("Paste", #selector(NSText.paste(_:)), "v", target: .responderChain),
-            // Text fields handle ⌘A themselves; elsewhere the window selects all visible photos.
-            item("Select All", #selector(NSResponder.selectAll(_:)), "a", target: .responderChain),
-            .separator(),
-            item("Select All New Photos", #selector(selectAllNew), "a", [.command, .option]),
-            item("Deselect All Photos", #selector(deselectAll), "a", [.command, .shift]),
-        ])
+        let name = "Corvus"
+        _ = submenu(
+            name,
+            [
+                item("About \(name)", #selector(showAbout)),
+                item("Third-Party Notices…", #selector(showNotices)),
+                .separator(),
+                item("Settings…", #selector(showSettings), ","),
+                .separator(),
+                item("Hide \(name)", #selector(NSApplication.hide(_:)), "h", target: .object(NSApp)),
+                item("Hide Others", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option], target: .object(NSApp)),
+                item("Show All", #selector(NSApplication.unhideAllApplications(_:)), target: .object(NSApp)),
+                .separator(),
+                item("Quit \(name)", #selector(NSApplication.terminate(_:)), "q", target: .object(NSApp)),
+            ])
+        _ = submenu(
+            "File",
+            [
+                item("Choose Source Folder…", #selector(chooseSource), "o"),
+                item("Choose Destination…", #selector(chooseDestination), "o", [.command, .shift]),
+                .separator(),
+                item("Scan Again", #selector(rescan), "r"),
+                item("Full Verification", #selector(fullVerification), "r", [.command, .option]),
+                item("Import Selected", #selector(importSelected), "i"),
+                item("Import All New", #selector(importAllNew), "i", [.command, .shift]),
+                .separator(),
+                item("Close Window", #selector(NSWindow.performClose(_:)), "w", target: .responderChain),
+            ])
+        let edit = submenu(
+            "Edit",
+            [
+                item("Undo", Selector(("undo:")), "z", target: .responderChain), item("Redo", Selector(("redo:")), "z", [.command, .shift], target: .responderChain),
+                .separator(),
+                item("Cut", #selector(NSText.cut(_:)), "x", target: .responderChain), item("Copy", #selector(NSText.copy(_:)), "c", target: .responderChain),
+                item("Paste", #selector(NSText.paste(_:)), "v", target: .responderChain),
+                // Text fields handle ⌘A themselves; elsewhere the window selects all visible photos.
+                item("Select All", #selector(NSResponder.selectAll(_:)), "a", target: .responderChain),
+                .separator(),
+                item("Select All New Photos", #selector(selectAllNew), "a", [.command, .option]),
+                item("Deselect All Photos", #selector(deselectAll), "a", [.command, .shift]),
+            ])
         _ = edit
-        _ = submenu("View", [
-            item("Show Already Imported", #selector(toggleImported), "e", [.command, .shift]),
-            .separator(),
-            item("Larger Thumbnails", #selector(zoomIn), "+"),
-            item("Smaller Thumbnails", #selector(zoomOut), "-"),
-            .separator(),
-            item("Toggle Sidebar", #selector(NSSplitViewController.toggleSidebar(_:)), "s", [.command, .control], target: .responderChain),
-            item("Toggle Import Options", #selector(toggleInspector), "i", [.command, .option]),
-        ])
-        let window = submenu("Window", [
-            item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m", target: .responderChain),
-            item("Zoom", #selector(NSWindow.performZoom(_:)), target: .responderChain),
-            .separator(),
-            item("Andermic Photo Importer", #selector(showWindow), "0"),
-        ])
+        _ = submenu(
+            "View",
+            [
+                item("Show Already Imported", #selector(toggleImported), "e", [.command, .shift]),
+                .separator(),
+                item("Larger Thumbnails", #selector(zoomIn), "+"),
+                item("Smaller Thumbnails", #selector(zoomOut), "-"),
+                .separator(),
+                item("Toggle Sidebar", #selector(NSSplitViewController.toggleSidebar(_:)), "s", [.command, .control], target: .responderChain),
+                item("Toggle Import Options", #selector(toggleInspector), "i", [.command, .option]),
+            ])
+        let window = submenu(
+            "Window",
+            [
+                item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m", target: .responderChain),
+                item("Zoom", #selector(NSWindow.performZoom(_:)), target: .responderChain),
+                item("Bring All to Front", #selector(NSApplication.arrangeInFront(_:)), target: .object(NSApp)),
+                .separator(),
+                item("Corvus", #selector(showWindow), "0"),
+            ])
         NSApp.windowsMenu = window
-        let help = submenu("Help", [item("Third-Party Notices", #selector(showNotices))])
-        NSApp.helpMenu = help
         NSApp.mainMenu = main
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -203,8 +214,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard let button = statusItem?.button else { return }
         let available = !controller.newlyAvailable.isEmpty
         let symbol = controller.state == .importing ? "arrow.down.circle" : (available ? "sdcard.fill" : "camera.badge.ellipsis")
-        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Andermic Photo Importer")
-        button.toolTip = available ? "Card available: " + controller.newlyAvailable.map(\.lastPathComponent).sorted().joined(separator: ", ")
-            : (controller.state == .importing ? "Importing photos…" : "Andermic Photo Importer")
+        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Corvus")
+        button.toolTip =
+            available
+            ? "Card available: " + controller.newlyAvailable.map(\.lastPathComponent).sorted().joined(separator: ", ")
+            : (controller.state == .importing ? "Importing photos…" : "Corvus")
     }
 }

@@ -15,7 +15,7 @@ Status: accepted on 2026-10-04 with the first-release implementation. Rules belo
 
 ## Duplicate status
 
-- A photo or video is content-confirmed as imported only when a complete SHA-256 match exists anywhere under the destination root, including renamed files. Size and samples only nominate candidates. Reports are never consulted. ADR-0011 amends previews: unchanged attributes and samples may reuse a previously verified hash for up to 30 days, with cached recognition visibly labelled. Import still requires complete current reads, and Full Verification bypasses persistent hints.
+- A photo or video is content-confirmed as imported only when a complete SHA-256 match exists anywhere under the destination root, including renamed files. Size and samples only nominate candidates. Reports are never consulted. ADR-0011 amends previews: unchanged attributes and samples may reuse a previously verified hash for up to 30 days, with cached recognition visibly labelled. ADR-0013 extends that assumption to previous imports outside the import selection after fresh checks. Selected files retain complete current reads, and Full Verification bypasses persistent hints.
 - A sidecar is already imported only when an identical copy sits beside an imported copy of its photo, under the matching name (`<photo base>.xmp`, or `<photo filename>.dop` for full-filename sidecars). Every content-confirmed copy of the photo is checked. Identical sidecar contents elsewhere, such as template XMP files, do not count.
 - Group status:
   - **New:** no primary found.
@@ -59,7 +59,7 @@ The original show-and-scan default and launch rule below were superseded on 2026
 
 ## Settings
 
-Settings move to `~/Library/Application Support/Andermic Photo Importer/settings.json` (schema 2). On first launch, a prototype `Photo Import/settings.json` is read once. Its destination, template, editor, and completion choices are kept, and the prototype file is left untouched. New installs default to `~/Pictures` and `{YYYY}/{MM}/{DD}`. An unreadable settings file is preserved as `settings-unreadable-<time>.json` before defaults are used. Reports are written to `Reports/` in the new directory; old reports stay where they are. Saved presets store destination, folder template, and after-import options.
+Settings move to `~/Library/Application Support/Andermic Photo Importer/settings.json` (schema 2; `Corvus/` since the 2026-10-30 rename, which adopts this folder once the same way). On first launch, a prototype `Photo Import/settings.json` is read once. Its destination, template, editor, and completion choices are kept, and the prototype file is left untouched. New installs default to `~/Pictures` and `{YYYY}/{MM}/{DD}`. An unreadable settings file is preserved as `settings-unreadable-<time>.json` before defaults are used. Reports are written to `Reports/` in the new directory; old reports stay where they are. Saved presets store destination, folder template, and after-import options.
 
 ## Consequences
 

@@ -1,7 +1,7 @@
 import AppKit
 
 // Diagnostics for packaging checks: confirm the app reads metadata with its own bundled helper.
-// Usage: PhotoImport --verify-metadata-helper <photo>
+// Usage: corvus --verify-metadata-helper <photo>
 if CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--verify-metadata-helper" {
     guard let helper = MetadataHelper.bundled() else { FileHandle.standardError.write(Data("Bundled metadata helper missing.\n".utf8)); exit(1) }
     do {

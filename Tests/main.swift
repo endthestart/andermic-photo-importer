@@ -1,6 +1,6 @@
+import Darwin
 import Foundation
 import ImageIO
-import Darwin
 
 setvbuf(stdout, nil, _IOLBF, 0)
 var checks = 0
@@ -29,9 +29,10 @@ func jpeg(_ name: String, day: String?, color: UInt8, in directory: URL = card, 
     try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
     let bytes: [UInt8] = [color, 70, 20, 255, color, 70, 20, 255, color, 70, 20, 255, color, 70, 20, 255]
     let provider = CGDataProvider(data: Data(bytes) as CFData)!
-    let image = CGImage(width: 2, height: 2, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: 8,
-                        space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue),
-                        provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)!
+    let image = CGImage(
+        width: 2, height: 2, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: 8,
+        space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue),
+        provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)!
     let writer = CGImageDestinationCreateWithURL(url as CFURL, "public.jpeg" as CFString, 1, nil)!
     let key = digitizedOnly ? kCGImagePropertyExifDateTimeDigitized : kCGImagePropertyExifDateTimeOriginal
     let properties: [CFString: Any] = day.map { [kCGImagePropertyExifDictionary: [key: $0]] } ?? [:]
@@ -45,12 +46,14 @@ func plan(event: String = "Soccer Tournament", fallback: CaptureDay? = nil, sour
     try Importer.plan(source: source, settings: settings, event: event, fallback: fallback, helper: helper, cancellation: cancellation, progress: { _ in })
 }
 func run(_ plan: ImportPlan, selection: Set<Int>? = nil, token: Cancellation? = nil, progress: ((ImportProgress) -> Void)? = nil) throws -> ImportResult {
-    try Importer.run(plan, selection: selection, cancellation: token ?? cancellation, reportDirectory: reports, progress: progress ?? { _ in })
+    try Importer.run(plan, selection: selection, cancellation: token ?? cancellation, reportDirectory: reports, metadataHelper: helper, progress: progress ?? { _ in })
 }
 func group(_ plan: ImportPlan, _ name: String) -> PhotoGroup { plan.groups.first { $0.name == name }! }
 
 // MARK: Bundled metadata helper
-try check(helper.perl.path.hasPrefix(testRoot.deletingLastPathComponent().path) || helper.perl.path.contains("/build/metadata-helper/"), "tests use the repository-built bundled helper, not an installed ExifTool")
+try check(
+    helper.perl.path.hasPrefix(testRoot.deletingLastPathComponent().path) || helper.perl.path.contains("/build/metadata-helper/"),
+    "tests use the repository-built bundled helper, not an installed ExifTool")
 try check(helper.process(arguments: []).environment == ["PATH": "/usr/bin:/bin", "LC_ALL": "C"], "helper runs with a clean environment (no PERL5LIB/PERL5OPT/user config)")
 try check(try helper.version() == helper.readManifest()?.components.first { $0.name == "ExifTool" }?.version, "bundled ExifTool version matches its pinned manifest")
 
@@ -70,7 +73,9 @@ try rejects("unknown template token rejected") { _ = try Importer.folder(templat
 try rejects("event templates require an event name") { _ = try Importer.folder(template: "{YYYY}/{event}", event: "", date: fallback) }
 try check(try Importer.folder(template: Settings.defaultTemplate, event: "", date: fallback) == "2025/05/18", "default year/month/day layout needs no event")
 let preview = try plan()
-try check(preview.newCount == 2 && preview.files[0].folder == "2025/05-18 - Soccer Tournament" && preview.files[1].folder == "2025/05-19 - Soccer Tournament", "native capture metadata and multi-day folder preview")
+try check(
+    preview.newCount == 2 && preview.files[0].folder == "2025/05-18 - Soccer Tournament" && preview.files[1].folder == "2025/05-19 - Soccer Tournament",
+    "native capture metadata and multi-day folder preview")
 try check(preview.scanReads.headerBytes > 0 && preview.scanReads.hashedBytes == 0, "preview reads bounded headers and never fully hashes new originals")
 let result = try run(preview)
 try check(result.copied == 2 && result.skipped == 0 && result.folders.count == 2, "first import publishes two verified originals")
@@ -131,9 +136,11 @@ let finalPlan = try plan()
 let finalTarget = library.appendingPathComponent("2025/05-20 - Soccer Tournament/third.JPG")
 var tampered = false
 try rejects("final verification catches changed destination") {
-    _ = try run(finalPlan, progress: { update in
-        if !tampered && update.text.hasPrefix("Final verification:") { try? Data("tampered".utf8).write(to: finalTarget); tampered = true }
-    })
+    _ = try run(
+        finalPlan,
+        progress: { update in
+            if !tampered && update.text.hasPrefix("Final verification:") { try? Data("tampered".utf8).write(to: finalTarget); tampered = true }
+        })
 }
 let partials = try Importer.files(in: library, allowed: nil, cancellation: cancellation).0.filter { $0.pathExtension == "partial" }
 try check(partials.isEmpty, "failed and cancelled imports leave no visible partial copies")
@@ -195,18 +202,24 @@ let groupPlan = try plan(event: "", source: groupCard, settings: groupSettings)
 try check(groupPlan.groups.count == 4 && groupPlan.files.count == 9 && groupPlan.orphanSidecars.count == 1, "photo-group and physical-file counts are distinct")
 let rawMember = groupPlan.files.first { $0.source == pairRAW }!
 try check(rawMember.date == CaptureDay(year: 2025, month: 6, day: 1) && rawMember.dateOrigin.hasPrefix("from IMG_0001.JPG"), "an undated RAW inherits its JPEG companion's capture day and records why")
-try check(Set(groupPlan.groups.compactMap(\.folder)) == ["2025/06/01", "2025/06/02", "2025/06/03"] && groupPlan.members(groupPlan.groups[0]).allSatisfy { $0.folder == "2025/06/01" }, "related files share one folder; multi-date imports use one folder per day")
+try check(
+    Set(groupPlan.groups.compactMap(\.folder)) == ["2025/06/01", "2025/06/02", "2025/06/03"] && groupPlan.members(groupPlan.groups[0]).allSatisfy { $0.folder == "2025/06/01" },
+    "related files share one folder; multi-date imports use one folder per day")
 let videoGroup = groupPlan.groups.first { $0.directory.lastPathComponent == "101CAMERA" && $0.name == "MVI_0003" }!
 try check(videoGroup.date == nil && groupPlan.missingDates(in: [videoGroup.id]) == 2, "an undated group needs an explicit fallback for every member")
 try check(groupPlan.newGroups.count == 4, "new photo groups are selected by default")
 let reorganized = try groupPlan.organized(template: "{YYYY}-{MM}-{DD} {event}", event: "Trip", fallback: fallback)
-try check(reorganized.groups[0].folder == "2025-06-01 Trip" && reorganized.missingCount == 0 && reorganized.scanReads === groupPlan.scanReads, "changing structure, event, or fallback recomputes folders without rereading files")
+try check(
+    reorganized.groups[0].folder == "2025-06-01 Trip" && reorganized.missingCount == 0 && reorganized.scanReads === groupPlan.scanReads,
+    "changing structure, event, or fallback recomputes folders without rereading files")
 
 // MARK: Selection
 let firstDay = groupPlan.groups[0].id
 let subset = try run(groupPlan, selection: [firstDay])
 let firstDayFolder = groupLibrary.appendingPathComponent("2025/06/01")
-try check(subset.copied == 4 && Set(try fm.contentsOfDirectory(atPath: firstDayFolder.path)) == ["IMG_0001.CR3", "IMG_0001.JPG", "IMG_0001.xmp", "IMG_0001.CR3.dop"], "importing a selected group copies every member with original names")
+try check(
+    subset.copied == 4 && Set(try fm.contentsOfDirectory(atPath: firstDayFolder.path)) == ["IMG_0001.CR3", "IMG_0001.JPG", "IMG_0001.xmp", "IMG_0001.CR3.dop"],
+    "importing a selected group copies every member with original names")
 try check(!fm.fileExists(atPath: groupLibrary.appendingPathComponent("2025/06/02").path), "unselected groups are not copied")
 for member in groupPlan.members(groupPlan.groups[0]) {
     try check(try bytes(member.source) == bytes(firstDayFolder.appendingPathComponent(member.source.lastPathComponent)), "\(member.source.lastPathComponent) bytes match exactly")
@@ -226,12 +239,16 @@ let partialPlan = try plan(event: "", source: groupCard, settings: groupSettings
 let partialGroup = group(partialPlan, "DSC_5000")
 try check(partialGroup.status == .partial && partialPlan.newGroups.contains(partialGroup.id), "a group with an imported JPEG and a new RAW is partial and selected")
 let partialResult = try run(partialPlan, selection: [partialGroup.id])
-try check(partialResult.copied == 1 && partialResult.skipped == 1 && fm.fileExists(atPath: groupLibrary.appendingPathComponent("2025/07/04/DSC_5000.NEF").path) && !fm.fileExists(atPath: groupLibrary.appendingPathComponent("2025/07/04/DSC_5000.JPG").path), "only the missing member of a partial group is copied")
+try check(
+    partialResult.copied == 1 && partialResult.skipped == 1 && fm.fileExists(atPath: groupLibrary.appendingPathComponent("2025/07/04/DSC_5000.NEF").path)
+        && !fm.fileExists(atPath: groupLibrary.appendingPathComponent("2025/07/04/DSC_5000.JPG").path), "only the missing member of a partial group is copied")
 // A sidecar edited outside the app no longer matches; it is not new photo content.
 try Data("<x:xmpmeta rating=1/>".utf8).write(to: folder100.appendingPathComponent("IMG_0001.xmp"))
 let sidecarPlan = try plan(event: "", source: groupCard, settings: groupSettings)
 let changedSidecar = group(sidecarPlan, "IMG_0001")
-try check(changedSidecar.directory.lastPathComponent == "100CAMERA" && changedSidecar.status == .sidecarChanged && !sidecarPlan.newGroups.contains(changedSidecar.id), "a group whose only change is a sidecar is not selected by default")
+try check(
+    changedSidecar.directory.lastPathComponent == "100CAMERA" && changedSidecar.status == .sidecarChanged && !sidecarPlan.newGroups.contains(changedSidecar.id),
+    "a group whose only change is a sidecar is not selected by default")
 
 // MARK: Group collisions
 let collisionCard = root.appendingPathComponent("CollisionCard"), collisionFolder = groupLibrary.appendingPathComponent("2025/08/09")
@@ -245,7 +262,10 @@ let collisionResult = try run(collisionPlan)
 let collisionNames = Set(try fm.contentsOfDirectory(atPath: collisionFolder.path))
 let suffixes = Set(collisionNames.filter { $0.hasPrefix("DSC_7000__") }.map { $0.dropFirst("DSC_7000__".count).prefix(16) })
 try check(collisionResult.copied == 3 && suffixes.count == 1 && collisionNames.filter { $0.hasPrefix("DSC_7000__") }.count == 3, "a name collision gives every related file the same suffix")
-try check(collisionNames.contains { $0.hasPrefix("DSC_7000__") && $0.hasSuffix(".NEF.xmp") } && (try? Data(contentsOf: collisionFolder.appendingPathComponent("DSC_7000.NEF"))) == Data("an unrelated photo from another camera".utf8), "the full-filename sidecar keeps its photo's name and the existing file is untouched")
+try check(
+    collisionNames.contains { $0.hasPrefix("DSC_7000__") && $0.hasSuffix(".NEF.xmp") }
+        && (try? Data(contentsOf: collisionFolder.appendingPathComponent("DSC_7000.NEF"))) == Data("an unrelated photo from another camera".utf8),
+    "the full-filename sidecar keeps its photo's name and the existing file is untouched")
 try check(!collisionResult.notes.isEmpty, "collision renames are reported")
 let collisionRepeat = try plan(event: "", source: collisionCard, settings: groupSettings)
 try check(collisionRepeat.groups[0].status == .imported, "suffixed groups, including their sidecars, are recognized on rescan")
@@ -276,12 +296,18 @@ try check([changedGroup, missingGroup, undatedGroup].allSatisfy { $0.status == .
 try check(sidePlan.missingDates(in: [undatedGroup.id]) == 0, "an undated sidecar-only import needs no date: it goes beside its imported photo")
 let sideResult = try run(sidePlan, selection: [changedGroup.id, missingGroup.id, undatedGroup.id])
 let sideNames = Set(try fm.contentsOfDirectory(atPath: sideFolder.path))
-try check((try? String(contentsOf: sideFolder.appendingPathComponent("DSC_8000.xmp"), encoding: .utf8)) == "<rating>5</rating> edited in the destination", "the edited destination sidecar is never replaced")
+try check(
+    (try? String(contentsOf: sideFolder.appendingPathComponent("DSC_8000.xmp"), encoding: .utf8)) == "<rating>5</rating> edited in the destination", "the edited destination sidecar is never replaced")
 let companions = sideNames.filter { $0.hasPrefix("DSC_8000__") }
 let companionStems = Set(companions.map { $0.components(separatedBy: ".")[0] })
-try check(companions.count == 3 && companionStems.count == 1 && companions.contains { $0.hasSuffix(".NEF") } && companions.contains { $0.hasSuffix(".JPG") } && companions.contains { $0.hasSuffix(".xmp") }, "a changed sidecar is imported with a matching copy of its photos under one shared name")
+try check(
+    companions.count == 3 && companionStems.count == 1 && companions.contains { $0.hasSuffix(".NEF") } && companions.contains { $0.hasSuffix(".JPG") } && companions.contains { $0.hasSuffix(".xmp") },
+    "a changed sidecar is imported with a matching copy of its photos under one shared name")
 let companionXMP = sideFolder.appendingPathComponent(companions.first { $0.hasSuffix(".xmp") }!)
-try check(try bytes(companionXMP) == bytes(changedXMP) && (try bytes(sideFolder.appendingPathComponent(companions.first { $0.hasSuffix(".NEF") }!))) == (try bytes(sideCard.appendingPathComponent("DSC_8000.NEF"))), "companion copies are byte-identical to the card")
+try check(
+    try bytes(companionXMP) == bytes(changedXMP)
+        && (try bytes(sideFolder.appendingPathComponent(companions.first { $0.hasSuffix(".NEF") }!))) == (try bytes(sideCard.appendingPathComponent("DSC_8000.NEF"))),
+    "companion copies are byte-identical to the card")
 try check(try bytes(sideFolder.appendingPathComponent("DSC_8001.JPG.xmp")) == bytes(missingXMP), "a missing sidecar is restored beside its photo under its associated name")
 let undatedCompanions = try fm.contentsOfDirectory(atPath: undatedFolder.path).filter { $0.hasPrefix("UNDATED__") }
 try check(undatedCompanions.count == 2, "an undated changed sidecar is imported beside its photo without a fallback date")
@@ -307,18 +333,22 @@ let rootEdited = Data("<rating>5</rating> edited in the destination".utf8)
 try rootEdited.write(to: rootLibrary.appendingPathComponent("ROOT_2.xmp"))
 let rootPlan = try plan(event: "", source: rootCard, settings: rootSettings)
 let rootSidecars = rootPlan.files.filter { $0.role == .sidecar }
-try check(rootPlan.groups.allSatisfy { $0.status == .sidecarChanged } && rootSidecars.allSatisfy { $0.besideDirectory?.standardizedFileURL.path == rootLibrary.standardizedFileURL.path }
-          && rootPlan.missingDates(in: Set(rootPlan.groups.map(\.id))) == 0, "sidecars of photos directly in the destination root are placed in the root")
+try check(
+    rootPlan.groups.allSatisfy { $0.status == .sidecarChanged } && rootSidecars.allSatisfy { $0.besideDirectory?.standardizedFileURL.path == rootLibrary.standardizedFileURL.path }
+        && rootPlan.missingDates(in: Set(rootPlan.groups.map(\.id))) == 0, "sidecars of photos directly in the destination root are placed in the root")
 let rootResult = try run(rootPlan, selection: Set(rootPlan.groups.map(\.id)))
 let rootNames = try fm.contentsOfDirectory(atPath: rootLibrary.path).filter { !$0.hasPrefix(".") }
 let rootCompanions = rootNames.filter { $0.hasPrefix("ROOT_2__") }
 try check(rootResult.copied == 3 && (try bytes(rootLibrary.appendingPathComponent("ROOT_1.xmp"))) == (try bytes(rootMissing)), "a missing sidecar is restored beside its root-level photo")
-try check(try bytes(rootLibrary.appendingPathComponent("ROOT_2.xmp")) == rootEdited && rootCompanions.count == 2 && Set(rootCompanions.map { $0.components(separatedBy: ".")[0] }).count == 1
-          && (try bytes(rootLibrary.appendingPathComponent(rootCompanions.first { $0.hasSuffix(".xmp") }!))) == (try bytes(rootChanged)), "a changed root-level sidecar keeps the edited file and arrives with a matching photo copy")
+try check(
+    try bytes(rootLibrary.appendingPathComponent("ROOT_2.xmp")) == rootEdited && rootCompanions.count == 2 && Set(rootCompanions.map { $0.components(separatedBy: ".")[0] }).count == 1
+        && (try bytes(rootLibrary.appendingPathComponent(rootCompanions.first { $0.hasSuffix(".xmp") }!))) == (try bytes(rootChanged)),
+    "a changed root-level sidecar keeps the edited file and arrives with a matching photo copy")
 let rootRescan = try plan(event: "", source: rootCard, settings: rootSettings)
 let rootRepeat = try run(rootRescan, selection: Set(rootRescan.groups.map(\.id)))
-try check(rootRescan.groups.allSatisfy { $0.status == .imported } && rootRepeat.copied == 0
-          && (try fm.contentsOfDirectory(atPath: rootLibrary.path).filter { !$0.hasPrefix(".") }.count) == 6, "root-level sidecars are recognized on rescan and a repeat copies nothing")
+try check(
+    rootRescan.groups.allSatisfy { $0.status == .imported } && rootRepeat.copied == 0
+        && (try fm.contentsOfDirectory(atPath: rootLibrary.path).filter { !$0.hasPrefix(".") }.count) == 6, "root-level sidecars are recognized on rescan and a repeat copies nothing")
 try check((try? Importer.validatePlacement(rootLibrary, root: rootLibrary)) != nil, "the destination root itself is a valid placement folder")
 try rejects("a placement outside the destination is refused") { try Importer.validatePlacement(rootCard, root: rootLibrary) }
 let lookAlike = root.appendingPathComponent("RootLibrary2"); try fm.createDirectory(at: lookAlike, withIntermediateDirectories: true)
@@ -349,20 +379,27 @@ func partialFiles() throws -> [String] { try fm.subpathsOfDirectory(atPath: twoL
 func checkFirstPlacementKept(_ failure: ImportFailure?, cancelled: Bool, _ label: String) throws {
     let receipt = try failure.map { try reportDecoder.decode(Receipt.self, from: Data(contentsOf: $0.receipt)) }
     let placed = twoDay.appendingPathComponent("TWO_1.JPG.xmp")
-    try check(failure?.cancelled == cancelled && failure?.copied == 1 && failure?.skipped == 2 && failure?.outcomes[jpegSidecar.path] == placed
-              && failure?.outcomes.count == 3 && failure?.outcomes[rawSidecar.path] == nil, "\(label): the failure reports the first placement and the verified photos")
-    try check(receipt.map { !$0.complete && $0.cancelled == cancelled && $0.error != nil && $0.entries.count == 3
-              && $0.entries.contains { $0.destination == placed.path && $0.action == "copied and verified" } } == true, "\(label): the receipt records every published and verified file")
-    try check(try bytes(placed) == bytes(jpegSidecar) && !fm.fileExists(atPath: rawFolder.appendingPathComponent("TWO_1.NEF.xmp").path)
-              && (try bytes(rawFolder.appendingPathComponent("TWO_1.NEF"))) == rawBefore && (try bytes(twoDay.appendingPathComponent("TWO_1.JPG"))) == jpegBefore
-              && (try partialFiles()).isEmpty, "\(label): the published sidecar and existing photos keep their bytes and no staging file remains")
+    try check(
+        failure?.cancelled == cancelled && failure?.copied == 1 && failure?.skipped == 2 && failure?.outcomes[jpegSidecar.path] == placed
+            && failure?.outcomes.count == 3 && failure?.outcomes[rawSidecar.path] == nil, "\(label): the failure reports the first placement and the verified photos")
+    try check(
+        receipt.map {
+            !$0.complete && $0.cancelled == cancelled && $0.error != nil && $0.entries.count == 3
+                && $0.entries.contains { $0.destination == placed.path && $0.action == "copied and verified" }
+        } == true, "\(label): the receipt records every published and verified file")
+    try check(
+        try bytes(placed) == bytes(jpegSidecar) && !fm.fileExists(atPath: rawFolder.appendingPathComponent("TWO_1.NEF.xmp").path)
+            && (try bytes(rawFolder.appendingPathComponent("TWO_1.NEF"))) == rawBefore && (try bytes(twoDay.appendingPathComponent("TWO_1.JPG"))) == jpegBefore
+            && (try partialFiles()).isEmpty, "\(label): the published sidecar and existing photos keep their bytes and no staging file remains")
 }
 func retryCompletes(_ label: String) throws {
     let retryPlan = try plan(event: "", source: twoCard, settings: twoSettings)
     let retry = try run(retryPlan, selection: Set(retryPlan.groups.map(\.id)))
     let after = try plan(event: "", source: twoCard, settings: twoSettings)
-    try check(retry.copied == 1 && (try bytes(rawFolder.appendingPathComponent("TWO_1.NEF.xmp"))) == (try bytes(rawSidecar))
-              && after.groups.allSatisfy { $0.status == .imported } && (try run(after, selection: Set(after.groups.map(\.id)))).copied == 0, "\(label): retry places only the remaining sidecar, then repeats copy nothing")
+    try check(
+        retry.copied == 1 && (try bytes(rawFolder.appendingPathComponent("TWO_1.NEF.xmp"))) == (try bytes(rawSidecar))
+            && after.groups.allSatisfy { $0.status == .imported } && (try run(after, selection: Set(after.groups.map(\.id)))).copied == 0,
+        "\(label): retry places only the remaining sidecar, then repeats copy nothing")
 }
 let twoPlan = try plan(event: "", source: twoCard, settings: twoSettings)
 try check(Set(twoPlan.files.compactMap { $0.besideDirectory?.lastPathComponent }) == ["02", "RAW"], "each sidecar is placed beside its own photo, in two folders")
@@ -379,8 +416,9 @@ let cancelPlan = try plan(event: "", source: twoCard, settings: twoSettings)
 let placementStop = Cancellation()
 var cancelledFailure: ImportFailure?
 do {
-    _ = try run(cancelPlan, selection: Set(cancelPlan.groups.map(\.id)), token: placementStop,
-                progress: { update in if update.text.hasPrefix("Placing TWO_1.NEF.xmp") { placementStop.cancel() } })
+    _ = try run(
+        cancelPlan, selection: Set(cancelPlan.groups.map(\.id)), token: placementStop,
+        progress: { update in if update.text.hasPrefix("Placing TWO_1.NEF.xmp") { placementStop.cancel() } })
 } catch let error as ImportFailure { cancelledFailure = error }
 try checkFirstPlacementKept(cancelledFailure, cancelled: true, "cancellation")
 try retryCompletes("after cancellation")
@@ -399,7 +437,9 @@ do {
 try check(failure?.cancelled == true && failure?.copied == 2 && failure?.outcomes.count == 2, "cancellation reports exactly the verified copies kept")
 let interruptReport = try reportDecoder.decode(Receipt.self, from: Data(contentsOf: failure!.receipt))
 try check(!interruptReport.complete && interruptReport.cancelled && interruptReport.entries.count == 2, "the report records a cancelled, partial import")
-try check(try Importer.files(in: interruptLibrary, allowed: nil, cancellation: cancellation).0.count == 2 && (try fm.subpathsOfDirectory(atPath: interruptLibrary.path)).allSatisfy { !$0.hasSuffix(".partial") }, "cancellation keeps completed copies and removes the in-progress staging file")
+try check(
+    try Importer.files(in: interruptLibrary, allowed: nil, cancellation: cancellation).0.count == 2
+        && (try fm.subpathsOfDirectory(atPath: interruptLibrary.path)).allSatisfy { !$0.hasSuffix(".partial") }, "cancellation keeps completed copies and removes the in-progress staging file")
 let retryPlan = try plan(event: "", source: interruptCard, settings: interruptSettings)
 try check(retryPlan.newGroups.count == 2, "rescan after cancellation offers only the remaining photos")
 let retry = try run(retryPlan, selection: retryPlan.newGroups)
@@ -411,30 +451,54 @@ let twinA = try jpeg("TWIN.JPG", day: nil, color: 61, in: twinCard.appendingPath
 try fm.createDirectory(at: twinCard.appendingPathComponent("B"), withIntermediateDirectories: true)
 try fm.copyItem(at: twinA, to: twinCard.appendingPathComponent("B/TWIN-COPY.JPG"))
 let twinPlan = try plan(event: "", source: twinCard, settings: groupSettings)
-try check(twinPlan.groups.contains { $0.status == .sourceDuplicate } && twinPlan.missingDates(in: Set(twinPlan.groups.map(\.id))) == 2, "undated duplicates within a source still require a fallback before import")
+try check(
+    twinPlan.groups.contains { $0.status == .sourceDuplicate } && twinPlan.missingDates(in: Set(twinPlan.groups.map(\.id))) == 2,
+    "undated duplicates within a source still require a fallback before import")
 try rejects("an undated duplicate within the source is refused before any copy") { _ = try run(twinPlan) }
 
 // MARK: Settings migration
 let settingsRoot = root.appendingPathComponent("Settings"), legacyRoot = root.appendingPathComponent("LegacySettings")
 try fm.createDirectory(at: legacyRoot, withIntermediateDirectories: true)
-let legacyJSON = #"{"destination":"/Volumes/Photography/Photo Container","eject":true,"exiftool":"/opt/homebrew/bin/exiftool","folderTemplate":"{YYYY}/{MM}-{DD} - {event}","openInDxO":true,"photoLab":"/Applications/DXOPhotoLab10.app"}"#
+let legacyJSON =
+    #"{"destination":"/Volumes/Photography/Photo Container","eject":true,"exiftool":"/opt/homebrew/bin/exiftool","folderTemplate":"{YYYY}/{MM}-{DD} - {event}","openInDxO":true,"photoLab":"/Applications/DXOPhotoLab10.app"}"#
 try Data(legacyJSON.utf8).write(to: legacyRoot.appendingPathComponent("settings.json"))
-let migrated = Settings.load(directory: settingsRoot, legacyDirectory: legacyRoot)
-try check(migrated.destination == "/Volumes/Photography/Photo Container" && migrated.folderTemplate == "{YYYY}/{MM}-{DD} - {event}" && migrated.eject && migrated.openInDxO, "prototype settings keep the configured destination, template, and completion options")
-try check(migrated.launchInBackground && migrated.cardInsertion == .showAndScan && migrated.presets.isEmpty && migrated.schemaVersion == Settings.schema, "fields missing from prototype settings use new defaults")
-try check(fm.fileExists(atPath: settingsRoot.appendingPathComponent("settings.json").path) && (try Data(contentsOf: legacyRoot.appendingPathComponent("settings.json"))) == Data(legacyJSON.utf8), "migration writes the new location and leaves the prototype file untouched")
-let fresh = Settings.load(directory: root.appendingPathComponent("FreshSettings"), legacyDirectory: root.appendingPathComponent("NoLegacy"))
+let migrated = Settings.load(directory: settingsRoot, legacyDirectories: [legacyRoot])
+try check(
+    migrated.destination == "/Volumes/Photography/Photo Container" && migrated.folderTemplate == "{YYYY}/{MM}-{DD} - {event}" && migrated.eject && migrated.openInDxO,
+    "prototype settings keep the configured destination, template, and completion options")
+try check(
+    migrated.launchInBackground && migrated.cardInsertion == .showAndScan && migrated.presets.isEmpty && migrated.schemaVersion == Settings.schema,
+    "fields missing from prototype settings use new defaults")
+try check(
+    fm.fileExists(atPath: settingsRoot.appendingPathComponent("settings.json").path) && (try Data(contentsOf: legacyRoot.appendingPathComponent("settings.json"))) == Data(legacyJSON.utf8),
+    "migration writes the new location and leaves the prototype file untouched")
+let fresh = Settings.load(directory: root.appendingPathComponent("FreshSettings"), legacyDirectories: [root.appendingPathComponent("NoLegacy")])
 try check(fresh.destination == fm.urls(for: .picturesDirectory, in: .userDomainMask)[0].path && fresh.folderTemplate == "{YYYY}/{MM}/{DD}", "new users default to Pictures and year/month/day")
 var customized = migrated
 customized.cardInsertion = .scanInBackground
 customized.launchInBackground = false
 customized.presets = [ImportPreset(name: "Trips", destination: library.path, folderTemplate: "{YYYY}/{event}", openInEditor: false, eject: true)]
 try customized.save(to: settingsRoot)
-let reloaded = Settings.load(directory: settingsRoot, legacyDirectory: legacyRoot)
-try check(reloaded.cardInsertion == .scanInBackground && !reloaded.launchInBackground && reloaded.presets == customized.presets && reloaded.destination == customized.destination, "startup, background scanning, and saved presets persist")
+let reloaded = Settings.load(directory: settingsRoot, legacyDirectories: [legacyRoot])
+try check(
+    reloaded.cardInsertion == .scanInBackground && !reloaded.launchInBackground && reloaded.presets == customized.presets && reloaded.destination == customized.destination,
+    "startup, background scanning, and saved presets persist")
 try Data("{not json".utf8).write(to: settingsRoot.appendingPathComponent("settings.json"))
-let recoveredSettings = Settings.load(directory: settingsRoot, legacyDirectory: legacyRoot)
-try check(recoveredSettings.folderTemplate == Settings.defaultTemplate && (try fm.contentsOfDirectory(atPath: settingsRoot.path)).contains { $0.hasPrefix("settings-unreadable-") }, "an unreadable settings file is preserved before defaults are used")
+let recoveredSettings = Settings.load(directory: settingsRoot, legacyDirectories: [legacyRoot])
+try check(
+    recoveredSettings.folderTemplate == Settings.defaultTemplate && (try fm.contentsOfDirectory(atPath: settingsRoot.path)).contains { $0.hasPrefix("settings-unreadable-") },
+    "an unreadable settings file is preserved before defaults are used")
+let renamedRoot = root.appendingPathComponent("RenamedSettings"), previousNameRoot = root.appendingPathComponent("PreviousNameSettings")
+try customized.save(to: previousNameRoot)
+let previousNameJSON = try Data(contentsOf: previousNameRoot.appendingPathComponent("settings.json"))
+let renamed = Settings.load(directory: renamedRoot, legacyDirectories: [previousNameRoot, legacyRoot])
+try check(renamed.presets == customized.presets && !renamed.launchInBackground && renamed.cardInsertion == .scanInBackground, "the previous app name's settings win over the prototype's")
+try check(
+    (try Data(contentsOf: previousNameRoot.appendingPathComponent("settings.json"))) == previousNameJSON
+        && (try Data(contentsOf: legacyRoot.appendingPathComponent("settings.json"))) == Data(legacyJSON.utf8), "renaming leaves earlier settings files untouched")
+try check(
+    Settings.directory.lastPathComponent == "Corvus" && Settings.legacyDirectories.map(\.lastPathComponent) == ["Andermic Photo Importer", "Photo Import"]
+        && Settings.reportsDirectory.deletingLastPathComponent() == Settings.directory, "settings and reports live in Corvus and adopt the previous name's folder before the prototype's")
 
 // MARK: Bounded preview reads
 // Cold-scan workload: large new originals among same-size unrelated destination files.
@@ -453,13 +517,19 @@ for index in 0..<12 {
 var perfSettings = settings; perfSettings.destination = perfLibrary.path
 let scanStart = Date()
 var firstResults: TimeInterval = 0
-let fastPlan = try Importer.plan(source: perfCard, settings: perfSettings, event: "Performance", fallback: nil, helper: helper, cancellation: cancellation,
-                                 progress: { _ in }, discovered: { _ in firstResults = Date().timeIntervalSince(scanStart) })
+let fastPlan = try Importer.plan(
+    source: perfCard, settings: perfSettings, event: "Performance", fallback: nil, helper: helper, cancellation: cancellation,
+    progress: { _ in }, discovered: { _ in firstResults = Date().timeIntervalSince(scanStart) })
 let scanTime = Date().timeIntervalSince(scanStart)
 try check(fastPlan.newCount == 12 && fastPlan.missingCount == 0, "large same-size unrelated files are correctly classified as new with native capture dates")
-try check(fastPlan.scanReads.hashedBytes == 0 && fastPlan.scanReads.sampledBytes <= 24 * 96 * 1024 && fastPlan.scanReads.headerBytes <= 12 * 256 * 1024, "cold preview reads bounded headers and samples instead of full new originals or unrelated candidates")
-print(String(format: "Preview of OS-cached synthetic files (not a real-card benchmark): groups shown after %.3f s, complete after %.3f s; %.2f MiB headers, %.2f MiB sampled, %.2f MiB fully hashed for 384 MiB of originals/candidates.",
-             firstResults, scanTime, Double(fastPlan.scanReads.headerBytes) / 1048576, Double(fastPlan.scanReads.sampledBytes) / 1048576, Double(fastPlan.scanReads.hashedBytes) / 1048576))
+try check(
+    fastPlan.scanReads.hashedBytes == 0 && fastPlan.scanReads.sampledBytes <= 24 * 96 * 1024 && fastPlan.scanReads.headerBytes <= 12 * 256 * 1024,
+    "cold preview reads bounded headers and samples instead of full new originals or unrelated candidates")
+print(
+    String(
+        format:
+            "Preview of OS-cached synthetic files (not a real-card benchmark): groups shown after %.3f s, complete after %.3f s; %.2f MiB headers, %.2f MiB sampled, %.2f MiB fully hashed for 384 MiB of originals/candidates.",
+        firstResults, scanTime, Double(fastPlan.scanReads.headerBytes) / 1_048_576, Double(fastPlan.scanReads.sampledBytes) / 1_048_576, Double(fastPlan.scanReads.hashedBytes) / 1_048_576))
 // Make a deliberate sample collision by altering an unsampled byte only.
 let collisionSource = perfCard.appendingPathComponent("new-0.JPG")
 var collisionBytes = try Data(contentsOf: collisionSource); collisionBytes[128 * 1024] = 250
@@ -480,7 +550,9 @@ let partialVerified = perfLibrary.appendingPathComponent(fastPlan.files.first(wh
 if fm.fileExists(atPath: partialVerified.path) { try fm.removeItem(at: partialVerified) }
 try fm.copyItem(at: collisionSource, to: perfLibrary.appendingPathComponent("renamed-duplicate.data"))
 let duplicatePlan = try plan(event: "Performance", fallback: fallback, source: perfCard, settings: perfSettings)
-try check(duplicatePlan.newCount == 11 && duplicatePlan.files.first(where: { $0.source == collisionSource })?.existing?.lastPathComponent == "renamed-duplicate.data", "large renamed duplicates remain detectable after sample filtering")
+try check(
+    duplicatePlan.newCount == 11 && duplicatePlan.files.first(where: { $0.source == collisionSource })?.existing?.lastPathComponent == "renamed-duplicate.data",
+    "large renamed duplicates remain detectable after sample filtering")
 // MARK: Read-only USB camera snapshots (synthetic transport)
 let cameraTemp = root.appendingPathComponent("CameraTemp")
 try fm.createDirectory(at: cameraTemp, withIntermediateDirectories: true)
@@ -496,20 +568,23 @@ let cameraCatalogItems: [String: CameraCatalogItem] = [
     "raw": CameraCatalogItem(id: "raw", folder: false, name: "DSC_0001.NEF", size: Int64(cameraRAW.count), parent: "dcim-1"),
     "jpeg": CameraCatalogItem(id: "jpeg", folder: false, name: "DSC_0001.JPG", size: Int64(cameraJPEG.count), parent: "dcim-1"),
     "sidecar": CameraCatalogItem(id: "sidecar", folder: false, name: "DSC_0001.XMP", size: Int64(cameraSidecar.count), parent: "dcim-1"),
-    "slot2": CameraCatalogItem(id: "slot2", folder: false, name: "DSC_0001.JPG", size: Int64(cameraJPEG.count), parent: "dcim-2")
+    "slot2": CameraCatalogItem(id: "slot2", folder: false, name: "DSC_0001.JPG", size: Int64(cameraJPEG.count), parent: "dcim-2"),
 ]
 let flatCameraCatalog = try CameraCatalog.collect(hierarchy: [], media: ["raw", "jpeg", "slot2"], items: cameraCatalogItems)
-try check(flatCameraCatalog.count == 3 && flatCameraCatalog[0].folders == flatCameraCatalog[1].folders && flatCameraCatalog[0].folders != flatCameraCatalog[2].folders,
-          "Z8-style empty hierarchy still finds media originals and preserves parent folders across slots")
+try check(
+    flatCameraCatalog.count == 3 && flatCameraCatalog[0].folders == flatCameraCatalog[1].folders && flatCameraCatalog[0].folders != flatCameraCatalog[2].folders,
+    "Z8-style empty hierarchy still finds media originals and preserves parent folders across slots")
 let cameraObjects = try CameraCatalog.collect(hierarchy: ["slot-1"], media: ["raw", "jpeg", "slot2", "raw"], items: cameraCatalogItems)
-try check(cameraObjects.count == 4 && Set(cameraObjects.map(\.id)).count == 4 && cameraObjects.contains { $0.id == "sidecar" },
-          "camera catalog merges hierarchy-only sidecars with flat media originals without duplicates")
+try check(
+    cameraObjects.count == 4 && Set(cameraObjects.map(\.id)).count == 4 && cameraObjects.contains { $0.id == "sidecar" },
+    "camera catalog merges hierarchy-only sidecars with flat media originals without duplicates")
 let inferredCameraCatalog: [String: CameraCatalogItem] = [
     "root": CameraCatalogItem(id: "root", folder: true, name: "DCIM", children: ["file"]),
-    "file": CameraCatalogItem(id: "file", folder: false, name: "DSC_0001.NEF", size: 1)
+    "file": CameraCatalogItem(id: "file", folder: false, name: "DSC_0001.NEF", size: 1),
 ]
-try check(try CameraCatalog.collect(hierarchy: ["root"], media: ["file"], items: inferredCameraCatalog).first?.folders.count == 1,
-          "hierarchy-only parent relationships are retained when a file omits its parent link")
+try check(
+    try CameraCatalog.collect(hierarchy: ["root"], media: ["file"], items: inferredCameraCatalog).first?.folders.count == 1,
+    "hierarchy-only parent relationships are retained when a file omits its parent link")
 var cyclicCameraCatalog = cameraCatalogItems
 cyclicCameraCatalog["slot-1"]!.parent = "dcim-1"
 try rejects("flat camera catalog refuses cyclic parent folders") { _ = try CameraCatalog.collect(hierarchy: [], media: ["raw"], items: cyclicCameraCatalog) }
@@ -525,7 +600,8 @@ func cameraRead(_ object: CameraObject, _ offset: Int64, _ length: Int) throws -
     // Deliberately short successful reads exercise offset advancement.
     return data.subdata(in: Int(offset)..<min(Int(offset) + min(length, 257), data.count))
 }
-var cameraCopy: CameraSnapshot? = try CameraStaging.prepare(cameraObjects, camera: "camera://synthetic/Z8", cancellation: Cancellation(), temporaryRoot: cameraTemp, read: cameraRead, progress: { _ in })
+var cameraCopy: CameraSnapshot? = try CameraStaging.prepare(
+    cameraObjects, camera: "camera://synthetic/Z8", cancellation: Cancellation(), temporaryRoot: cameraTemp, read: cameraRead, progress: { _ in })
 let cameraDirectory = cameraCopy!.directory
 try Importer.assertDirectory(cameraDirectory)
 let cameraTempAlias = root.appendingPathComponent("CameraTempAlias")
@@ -533,30 +609,83 @@ try fm.createSymbolicLink(at: cameraTempAlias, withDestinationURL: cameraTemp)
 try rejects("USB staging refuses symlinked temporary roots without weakening source checks") {
     _ = try CameraStaging.prepare(cameraObjects, camera: "camera://synthetic", cancellation: Cancellation(), temporaryRoot: cameraTempAlias, read: cameraRead, progress: { _ in })
 }
-try check(try cameraObjects.allSatisfy { object in
-    let path = (object.folders + [object.name]).reduce(cameraDirectory) { $0.appendingPathComponent($1) }
-    return try bytes(path) == cameraData[object.id] && Importer.digest(path, cancellation: cancellation).0 == cameraCopy!.hashes[path.path]
-}, "USB snapshot preserves every original byte and verifies transfer hashes after short reads")
+try check(
+    try cameraObjects.allSatisfy { object in
+        let path = (object.folders + [object.name]).reduce(cameraDirectory) { $0.appendingPathComponent($1) }
+        return try bytes(path) == cameraData[object.id] && Importer.digest(path, cancellation: cancellation).0 == cameraCopy!.hashes[path.path]
+    }, "USB snapshot preserves every original byte and verifies transfer hashes after short reads")
 let (cameraGroups, cameraOrphans) = Grouping.group(cameraCopy!.hashes.keys.map { URL(fileURLWithPath: $0) })
-try check(cameraGroups.count == 2 && cameraGroups.contains { $0.members.count == 3 } && cameraOrphans.isEmpty, "USB RAW/JPEG/sidecars group together while repeated names across card slots stay separate")
+try check(
+    cameraGroups.count == 2 && cameraGroups.contains { $0.members.count == 3 } && cameraOrphans.isEmpty, "USB RAW/JPEG/sidecars group together while repeated names across card slots stay separate")
 try check((try fm.attributesOfItem(atPath: cameraDirectory.path)[.posixPermissions] as? NSNumber)?.intValue == 0o700, "camera temporary originals are in a private directory")
 var usbSettings = Settings(); usbSettings.destination = root.appendingPathComponent("USB-Library").path
 try fm.createDirectory(atPath: usbSettings.destination, withIntermediateDirectories: true)
-var usbPlan = try plan(event: "", fallback: nil, source: cameraDirectory, settings: usbSettings)
+let usbHintsDirectory = root.appendingPathComponent("USBHints")
+func usbPreview() throws -> ImportPlan {
+    try Importer.plan(
+        source: cameraDirectory, settings: usbSettings, event: "", fallback: nil, helper: helper, cancellation: cancellation,
+        verificationCache: DuplicateVerificationCache(directory: usbHintsDirectory), transferred: cameraCopy!.transferred, progress: { _ in })
+}
+var usbPlan = try usbPreview()
+try check(
+    usbPlan.scanReads.hashedBytes == 0 && usbPlan.files.allSatisfy { $0.transferVerified && $0.digest == cameraCopy!.hashes[$0.source.path] },
+    "USB preview reuses complete transfer hashes instead of rereading every temporary copy")
 usbPlan.sourceDescription = "camera://synthetic/Z8"; usbPlan.sourceFileDescriptions = cameraCopy!.origins
-for i in usbPlan.files.indices { usbPlan.files[i].digest = cameraCopy!.hashes[usbPlan.files[i].source.path] }
-let usbResult = try run(usbPlan)
+let usbResult = try Importer.run(
+    usbPlan, cancellation: cancellation, reportDirectory: reports, verificationCache: DuplicateVerificationCache(directory: usbHintsDirectory),
+    metadataHelper: helper, progress: { _ in })
 try check(usbResult.copied == 3 && usbResult.skipped == 1, "USB snapshots use content-confirmed duplicates and safe related-file imports")
 let usbReport = try JSONSerialization.jsonObject(with: Data(contentsOf: usbResult.receipt)) as! [String: Any]
-try check(usbReport["source"] as? String == "camera://synthetic/Z8" && (usbReport["entries"] as! [[String: Any]]).allSatisfy { ($0["source"] as? String)?.hasPrefix("camera://synthetic/Z8/") == true }, "USB reports retain camera provenance instead of disposable temporary paths")
+try check(
+    usbReport["source"] as? String == "camera://synthetic/Z8" && (usbReport["entries"] as! [[String: Any]]).allSatisfy { ($0["source"] as? String)?.hasPrefix("camera://synthetic/Z8/") == true },
+    "USB reports retain camera provenance instead of disposable temporary paths")
 let usbAgain = try run(usbPlan)
 try check(usbAgain.copied == 0 && usbAgain.skipped == 4, "USB repeat imports verify existing originals without copying again")
+let usbHints = DuplicateVerificationCache(directory: usbHintsDirectory), usbScope = DuplicateVerificationCache.namespace(root: URL(fileURLWithPath: usbSettings.destination))!
+try check(
+    usbHints.count > 0 && usbPlan.files.allSatisfy { usbHints.hash(for: $0.source, namespace: usbScope, info: $0.sourceInfo, sample: $0.fingerprint) == nil },
+    "disposable camera copies never enter the persistent cache, while destination copies do")
+let usbRepeat = try usbPreview()
+try check(usbRepeat.scanReads.hashedBytes == 0 && usbRepeat.newCount == 0, "repeat USB preview recognizes imported originals without complete local reads")
 // Even a fresh filesystem preview cannot bless a modified snapshot over its transport hash.
 let alteredUSB = usbPlan.files.first { $0.role == .raw }!.source
 try Data(repeating: 23, count: cameraRAW.count).write(to: alteredUSB)
+try rejects("USB preview refuses a temporary copy changed after its transfer hash") { _ = try usbPreview() }
 var alteredUSBPlan = try plan(event: "", fallback: nil, source: cameraDirectory, settings: usbSettings)
 for i in alteredUSBPlan.files.indices { alteredUSBPlan.files[i].digest = cameraCopy!.hashes[alteredUSBPlan.files[i].source.path] }
 try rejects("USB transfer hash rejects local snapshot tampering before publication") { _ = try run(alteredUSBPlan) }
+// Launch cleanup removes only abandoned camera copies, never a live snapshot or a link target.
+var liveCopy: CameraSnapshot? = try CameraStaging.prepare(cameraObjects, camera: "camera://synthetic/Z8", cancellation: Cancellation(), temporaryRoot: cameraTemp, read: cameraRead, progress: { _ in })
+let abandonedCopy = cameraTemp.appendingPathComponent(CameraStaging.prefix + "crashed")
+try fm.createDirectory(at: abandonedCopy.appendingPathComponent("folder-1"), withIntermediateDirectories: true)
+try Data([1]).write(to: abandonedCopy.appendingPathComponent("folder-1/DSC_0001.NEF"))
+try Data().write(to: abandonedCopy.appendingPathComponent(CameraStaging.ownerLock))
+let legacyCopy = cameraTemp.appendingPathComponent(CameraStaging.prefix + "legacy")
+try fm.createDirectory(at: legacyCopy, withIntermediateDirectories: false)
+let protectedTarget = root.appendingPathComponent("NotACameraCopy"); try fm.createDirectory(at: protectedTarget, withIntermediateDirectories: false)
+try Data([7]).write(to: protectedTarget.appendingPathComponent("keep.NEF"))
+try fm.createSymbolicLink(at: cameraTemp.appendingPathComponent(CameraStaging.prefix + "link"), withDestinationURL: protectedTarget)
+try check(
+    CameraStaging.removeAbandoned(in: cameraTemp, grace: 3600) == 1 && !fm.fileExists(atPath: abandonedCopy.path)
+        && fm.fileExists(atPath: liveCopy!.directory.path) && fm.fileExists(atPath: legacyCopy.path)
+        && (try bytes(protectedTarget.appendingPathComponent("keep.NEF"))) == Data([7]),
+    "launch cleanup removes an unlocked abandoned copy, keeps live and recent pre-lock folders, and never follows links")
+try check(
+    CameraStaging.removeAbandoned(in: cameraTemp, grace: 3600, now: Date().addingTimeInterval(7200)) == 1 && !fm.fileExists(atPath: legacyCopy.path)
+        && fm.fileExists(atPath: liveCopy!.directory.path), "pre-lock folders are removed only after the grace period")
+let earlierNameCopy = cameraTemp.appendingPathComponent("andermic-camera-crashed")
+try fm.createDirectory(at: earlierNameCopy, withIntermediateDirectories: false); try Data().write(to: earlierNameCopy.appendingPathComponent(CameraStaging.ownerLock))
+try check(
+    CameraStaging.prefix == "corvus-camera-" && CameraStaging.removeAbandoned(in: cameraTemp, grace: 3600) == 0 && fm.fileExists(atPath: earlierNameCopy.path)
+        && CameraStaging.removeAbandoned(in: cameraTemp, prefix: "andermic-camera-", grace: 3600) == 1 && !fm.fileExists(atPath: earlierNameCopy.path)
+        && fm.fileExists(atPath: liveCopy!.directory.path), "snapshots left under the earlier app name are cleaned only when that prefix is asked for")
+try fm.removeItem(at: cameraTemp.appendingPathComponent(CameraStaging.prefix + "link"))
+let liveDirectory = liveCopy!.directory
+try check(
+    try Importer.files(in: liveDirectory, allowed: nil, cancellation: Cancellation()).0.allSatisfy { !$0.lastPathComponent.hasPrefix(".") },
+    "the owner lock is hidden from source listings")
+liveCopy = nil
+try check(!fm.fileExists(atPath: liveDirectory.path), "a released snapshot removes its folder and lock")
 cameraCopy = nil
 try check(!fm.fileExists(atPath: cameraDirectory.path), "USB temporary originals are removed when their snapshot is released")
 func cameraFailure(_ title: String, objects: [CameraObject] = cameraObjects, token: Cancellation = Cancellation(), read: (CameraObject, Int64, Int) throws -> Data) throws {
@@ -579,15 +708,18 @@ for badName in ["../escape.JPG", ".hidden.JPG", "bad:name.JPG", "a\\b.JPG"] {
 }
 let ambiguous = cameraObjects + [CameraObject(id: "collision", folders: cameraObjects.first { $0.id == "jpeg" }!.folders.map { $0.uppercased() }, name: "dsc_0001.jpg", size: 1)]
 var invalidCatalogReads = 0
-try cameraFailure("USB rejects case-insensitive catalog collisions before transfer", objects: ambiguous) { _, _, _ in invalidCatalogReads += 1; return Data([0]) }
+try cameraFailure("USB rejects case-insensitive catalog collisions before transfer", objects: ambiguous) { _, _, _ in
+    invalidCatalogReads += 1; return Data([0])
+}
 try check(invalidCatalogReads == 0, "ambiguous USB catalog never requests original data")
-
 
 // Full-read verification remains mandatory in the cross-volume overlap path.
 let pairMetrics = ReadMetrics()
 let pairExpected = try Importer.digest(first, cancellation: Cancellation()).0
 let equalPair = try Importer.digestPair(first, first, cancellation: Cancellation(), metrics: pairMetrics)
-try check(equalPair.0 == pairExpected && equalPair.1 == pairExpected && pairMetrics.hashedBytes == UInt64(try Importer.info(first).st_size) * 2, "parallel verification reads and hashes both complete originals")
+try check(
+    equalPair.0 == pairExpected && equalPair.1 == pairExpected && pairMetrics.hashedBytes == UInt64(try Importer.info(first).st_size) * 2,
+    "parallel verification reads and hashes both complete originals")
 let pairToken = Cancellation(); pairToken.cancel()
 try rejects("parallel verification responds to cancellation") { _ = try Importer.digestPair(first, second, cancellation: pairToken) }
 try rejects("parallel verification propagates a missing source") { _ = try Importer.digestPair(root.appendingPathComponent("missing-source"), first, cancellation: Cancellation()) }
@@ -597,9 +729,40 @@ try fm.copyItem(at: collisionTarget, to: firstCollision)
 let pairIndex = try LibraryIndex(root: perfLibrary, cancellation: Cancellation())
 var collisionHash: String?
 let forcedDevice = try Importer.info(collisionTarget).st_dev ^ 1
-let parallelCollision = try pairIndex.matches(source: collisionSource, size: UInt64(fixtureSize), fingerprint: sourceSample, hash: &collisionHash,
+let parallelCollision = try pairIndex.matches(
+    source: collisionSource, size: UInt64(fixtureSize), fingerprint: sourceSample, hash: &collisionHash,
     all: false, cancellation: Cancellation(), sourceDevice: forcedDevice)
-try check(!parallelCollision.contains(firstCollision) && !parallelCollision.contains(collisionTarget) && parallelCollision.contains { $0.lastPathComponent == "renamed-duplicate.data" }, "overlapped candidate hashing rejects sample collisions and still finds renamed exact originals")
+try check(
+    !parallelCollision.contains(firstCollision) && !parallelCollision.contains(collisionTarget) && parallelCollision.contains { $0.lastPathComponent == "renamed-duplicate.data" },
+    "overlapped candidate hashing rejects sample collisions and still finds renamed exact originals")
+
+// The single-pass destination inventory keeps the listing's skip rules.
+let inventory = root.appendingPathComponent("InventoryLibrary")
+let inventoryVisible = inventory.appendingPathComponent("2025/05/renamed.data")
+for path in ["2025/05/renamed.data", ".hidden/copy.JPG", "2025/.dot.JPG", "Flagged/copy.JPG", "Old.photoslibrary/Masters/copy.JPG", "Tool.app/Contents/copy.JPG"] {
+    let url = inventory.appendingPathComponent(path)
+    try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try fm.copyItem(at: first, to: url)
+}
+try check(chflags(inventory.appendingPathComponent("Flagged/copy.JPG").path, UInt32(UF_HIDDEN)) == 0, "fixture can mark a file hidden")
+try fm.createSymbolicLink(at: inventory.appendingPathComponent("linked.JPG"), withDestinationURL: first)
+try fm.createSymbolicLink(at: inventory.appendingPathComponent("LinkedFolder"), withDestinationURL: card)
+let inventoryFiles = try LibraryIndex.regularFiles(in: inventory, cancellation: Cancellation())
+try check(
+    inventoryFiles.map(\.0.path) == [inventoryVisible.path] && Importer.stable(inventoryFiles[0].1, try Importer.info(inventoryVisible)),
+    "destination inventory lists renamed regular files with their attributes and skips hidden, flagged, package, and linked items")
+var inventoryHash: String?
+try check(
+    try LibraryIndex(root: inventory, cancellation: Cancellation()).matches(
+        source: first, size: UInt64(try Importer.info(first).st_size),
+        fingerprint: try Importer.fingerprint(first, cancellation: Cancellation()).0, hash: &inventoryHash, all: true, cancellation: Cancellation()) == [inventoryVisible],
+    "destination index matches only the visible renamed copy")
+let unreadable = inventory.appendingPathComponent("Locked"); try fm.createDirectory(at: unreadable, withIntermediateDirectories: false)
+try check(chmod(unreadable.path, 0) == 0, "fixture can lock a folder")
+try rejects("an unreadable destination folder fails the inventory instead of hiding candidates") { _ = try LibraryIndex.regularFiles(in: inventory, cancellation: Cancellation()) }
+_ = chmod(unreadable.path, 0o755)
+let stoppedInventory = Cancellation(); stoppedInventory.cancel()
+try rejects("destination inventory responds to cancellation") { _ = try LibraryIndex.regularFiles(in: inventory, cancellation: stoppedInventory) }
 
 // MARK: Expiring preview verification hints (synthetic only)
 let cacheCard = root.appendingPathComponent("CacheCard"), cacheLibrary = root.appendingPathComponent("CacheLibrary")
@@ -616,14 +779,23 @@ func hints(_ directory: URL = hintsDirectory, entries: Int = DuplicateVerificati
     DuplicateVerificationCache(directory: directory, clock: { cacheNow }, entryLimit: entries, byteLimit: bytes)
 }
 func cachedPlan(reuse: Bool = true) throws -> ImportPlan {
-    try Importer.plan(source: cacheCard, settings: cacheSettings, event: "", fallback: nil, helper: helper,
-                      cancellation: Cancellation(), verificationCache: hints(), reuseCachedHashes: reuse, progress: { _ in })
+    try Importer.plan(
+        source: cacheCard, settings: cacheSettings, event: "", fallback: nil, helper: helper,
+        cancellation: Cancellation(), verificationCache: hints(), reuseCachedHashes: reuse, progress: { _ in })
 }
 let coldHints = try cachedPlan()
 try check(coldHints.cachedGroups == 0 && coldHints.scanReads.hashedBytes == UInt64(cacheOriginalBytes.count * 2), "cold preview hashes both complete originals before seeding cache")
 let warmHints = try cachedPlan()
-try check(warmHints.cachedGroups == 1 && warmHints.newCount == 0 && warmHints.scanReads.hashedBytes == 0 && warmHints.scanReads.sampledBytes > 0, "persisted warm preview checks samples and recognizes renamed copies without full reads")
+try check(
+    warmHints.cachedGroups == 1 && warmHints.newCount == 0 && warmHints.scanReads.hashedBytes == 0 && warmHints.scanReads.sampledBytes > 0,
+    "persisted warm preview checks samples and recognizes renamed copies without full reads")
 try check(warmHints.scanReads.total < UInt64(cacheOriginalBytes.count), "warm duplicate scan reads less than one complete original")
+let adoptedDirectory = root.appendingPathComponent("AdoptedHints"), keptDirectory = root.appendingPathComponent("KeptHints")
+DuplicateVerificationCache.adopt(from: hintsDirectory, into: adoptedDirectory)
+try check(hints().count == 2 && hints(adoptedDirectory).count == 2 && fm.fileExists(atPath: hints().file.path), "a renamed install adopts the earlier verification cache and leaves it in place")
+hints(keptDirectory).save()
+DuplicateVerificationCache.adopt(from: hintsDirectory, into: keptDirectory)
+try check(hints(keptDirectory).count == 0, "adopting never replaces an existing verification cache")
 let fullHints = try cachedPlan(reuse: false)
 try check(fullHints.cachedGroups == 0 && fullHints.scanReads.hashedBytes == UInt64(cacheOriginalBytes.count * 2), "Full Verification bypasses warm hints and refreshes complete hashes")
 cacheNow = epoch.addingTimeInterval(29 * 24 * 60 * 60)
@@ -655,7 +827,8 @@ for field in ["device", "inode", "size", "mtime", "ctime", "birthtime"] {
     try check(signatureHints.hash(for: cacheOriginal, namespace: cacheScope, info: changed, sample: cacheSample) == nil, "changed \(field) invalidates verification hint")
 }
 rememberSignature()
-try check(signatureHints.hash(for: cacheOriginal, namespace: cacheScope, info: cacheSignature, sample: String(repeating: "0", count: 64)) == nil, "changed content samples invalidate verification hint")
+try check(
+    signatureHints.hash(for: cacheOriginal, namespace: cacheScope, info: cacheSignature, sample: String(repeating: "0", count: 64)) == nil, "changed content samples invalidate verification hint")
 rememberSignature()
 try check(signatureHints.hash(for: cacheOriginal, namespace: "another-destination", info: cacheSignature, sample: cacheSample) == nil, "cache cannot cross destination roots")
 try check(signatureHints.hash(for: cacheTarget, namespace: cacheScope, info: cacheSignature, sample: cacheSample) == nil, "cache cannot cross file paths")
@@ -673,7 +846,8 @@ for n in 0..<8 {
 }
 smallHints.save()
 try check(smallHints.count <= 3 && hints(root.appendingPathComponent("SmallHints"), entries: 3).count <= 3, "entry-count cap bounds high-volume cache growth")
-try check(smallHints.hash(for: cacheCard.appendingPathComponent("7.JPG"), namespace: cacheScope, info: cacheSignature, sample: cacheSample) == cacheHash, "count eviction retains recently verified entries")
+try check(
+    smallHints.hash(for: cacheCard.appendingPathComponent("7.JPG"), namespace: cacheScope, info: cacheSignature, sample: cacheSample) == cacheHash, "count eviction retains recently verified entries")
 let byteHints = hints(root.appendingPathComponent("ByteHints"), bytes: 1024)
 for n in 0..<10 { byteHints.record(cacheCard.appendingPathComponent("\(n).JPG"), namespace: cacheScope, info: cacheSignature, sample: cacheSample, hash: cacheHash) }
 byteHints.save()
@@ -694,9 +868,57 @@ try fm.createSymbolicLink(at: linkHintsDirectory.appendingPathComponent("verifie
 let linkHints = hints(linkHintsDirectory); linkHints.save()
 try check(linkHints.count == 0 && (try bytes(protectedFixture)) == Data("keep these bytes".utf8), "cache never follows or writes through a linked cache file")
 
-// Every selected file is fully rechecked during import even if preview hints lie.
+// Unchanged previous imports outside the selection need samples, not complete
+// reads. Selected files still use the strict import path.
 cacheNow = epoch
 _ = try cachedPlan(reuse: false)
+let fastNew = cacheCard.appendingPathComponent("FAST.JPG")
+var fastBytes = cacheOriginalBytes; fastBytes.append(17); try fastBytes.write(to: fastNew)
+cacheNow = epoch.addingTimeInterval(29 * 24 * 60 * 60)
+let fastPreview = try cachedPlan()
+let fastReads = ReadMetrics()
+let fastImport = try Importer.run(
+    fastPreview, selection: fastPreview.importableNewGroups, cancellation: Cancellation(), reportDirectory: reports,
+    verificationCache: hints(), metadataHelper: helper, cachedMatchMetrics: fastReads, progress: { _ in })
+try check(
+    fastImport.copied == 1 && fastImport.skipped == 0 && fastReads.hashedBytes == 0 && fastReads.sampledBytes == 2 * 3 * 32 * 1024,
+    "Import All New samples unchanged previous copies without fully hashing them or counting them as selected skips")
+try check(
+    fastImport.notes.contains(where: { $0.contains("1 previously imported files") && $0.contains("full contents were not reread") }),
+    "receipt distinguishes historical cached verification from fresh full verification")
+let fastTarget = fastImport.outcomes[fastNew.path]!
+try check(
+    (try bytes(fastTarget)) == fastBytes && (try bytes(cacheTarget)) == cacheOriginalBytes,
+    "fast preflight retains byte-preserved new copies and existing originals")
+cacheNow = epoch.addingTimeInterval(30 * 24 * 60 * 60)
+let expiredReads = ReadMetrics()
+let expiredImport = try Importer.run(
+    fastPreview, selection: fastPreview.importableNewGroups, cancellation: Cancellation(), reportDirectory: reports,
+    verificationCache: hints(), metadataHelper: helper, cachedMatchMetrics: expiredReads, progress: { _ in })
+try check(
+    expiredReads.hashedBytes == 2 * UInt64(cacheOriginalBytes.count) && expiredImport.copied == 0 && expiredImport.skipped == 1,
+    "cached import hits do not extend TTL; expired omitted matches require complete reads")
+try check(!expiredImport.notes.contains(where: { $0.contains("full contents were not reread") }), "fully reread matches are not reported as cache reuse")
+// A destination attribute change (e.g. a Finder tag) invalidates only that side's record.
+try check(chmod(cacheTarget.path, 0o640) == 0, "fixture can change destination attributes without changing contents")
+let partialReads = ReadMetrics()
+let partialImport = try Importer.run(
+    fastPreview, selection: fastPreview.importableNewGroups, cancellation: Cancellation(), reportDirectory: reports,
+    verificationCache: hints(), metadataHelper: helper, cachedMatchMetrics: partialReads, progress: { _ in })
+try check(
+    partialReads.hashedBytes == UInt64(cacheOriginalBytes.count) && partialImport.skipped == 1 && (try bytes(cacheTarget)) == cacheOriginalBytes,
+    "one stale cache side costs one complete read; the unchanged source record is reused")
+let refreshedReads = ReadMetrics()
+_ = try Importer.run(
+    fastPreview, selection: fastPreview.importableNewGroups, cancellation: Cancellation(), reportDirectory: reports,
+    verificationCache: hints(), metadataHelper: helper, cachedMatchMetrics: refreshedReads, progress: { _ in })
+try check(refreshedReads.hashedBytes == 0, "the fully reread side is recorded for the next import")
+_ = chmod(cacheTarget.path, 0o644)
+try fm.removeItem(at: fastNew); try fm.removeItem(at: fastTarget)
+cacheNow = epoch
+_ = try cachedPlan(reuse: false)
+// Every selected file is fully rechecked even if a cached hash lies. Attributes
+// changing after preview also invalidate omitted matches before any publication.
 let damagedDestination = try FileHandle(forWritingTo: cacheTarget)
 try damagedDestination.seek(toOffset: 128 * 1024); try damagedDestination.write(contentsOf: Data([42])); try damagedDestination.close()
 let unchangedSamples = try Importer.fingerprint(cacheTarget, cancellation: Cancellation()).0
@@ -706,20 +928,31 @@ poisonedHints.record(cacheTarget, namespace: cacheScope, info: try Importer.info
 poisonedHints.save()
 let guessedMatch = try cachedPlan()
 try check(guessedMatch.newCount == 0 && guessedMatch.cachedGroups == 1, "preview labels even an adversarial stale-hash match as cached")
-let damagedBytes = try bytes(cacheTarget)
+var damagedBytes = try bytes(cacheTarget)
 let genuinelyNew = cacheCard.appendingPathComponent("NEW.JPG")
 var extraOriginal = cacheOriginalBytes; extraOriginal.append(99); try extraOriginal.write(to: genuinelyNew)
 let mixedPreview = try cachedPlan()
 try check(mixedPreview.cachedGroups == 1 && mixedPreview.importableNewGroups.count == 1, "mixed preview contains a cached skip and a genuinely new original")
-try rejects("cached matches outside Import All New selection cannot authorize completion or ejection") {
-    _ = try Importer.run(mixedPreview, selection: mixedPreview.importableNewGroups, cancellation: Cancellation(), reportDirectory: reports, verificationCache: hints(), progress: { _ in })
+let changedDestination = try FileHandle(forWritingTo: cacheTarget)
+try changedDestination.seek(toOffset: 128 * 1024); try changedDestination.write(contentsOf: Data([43])); try changedDestination.close()
+damagedBytes = try bytes(cacheTarget)
+let changedReads = ReadMetrics()
+try rejects("changed attributes invalidate an omitted cached match and require full verification") {
+    _ = try Importer.run(
+        mixedPreview, selection: mixedPreview.importableNewGroups, cancellation: Cancellation(), reportDirectory: reports,
+        verificationCache: hints(), metadataHelper: helper, cachedMatchMetrics: changedReads, progress: { _ in })
 }
-try check((try bytes(cacheTarget)) == damagedBytes && !fm.fileExists(atPath: cacheLibrary.appendingPathComponent("2025/05/18/NEW.JPG").path), "stale cached skip aborts before publishing any selected new original")
+try check(changedReads.hashedBytes == UInt64(cacheOriginalBytes.count), "changed omitted destination is read in full before rejecting different contents")
+try check(
+    (try bytes(cacheTarget)) == damagedBytes && !fm.fileExists(atPath: cacheLibrary.appendingPathComponent("2025/05/18/NEW.JPG").path),
+    "stale cached skip aborts before publishing any selected new original")
 try fm.removeItem(at: genuinelyNew)
 let rebuiltPreview = try cachedPlan(reuse: false)
 try check(rebuiltPreview.newCount == 1 && rebuiltPreview.cachedGroups == 0, "Full Verification corrects an incorrect cached destination match")
-let strictlyImported = try Importer.run(guessedMatch, cancellation: Cancellation(), reportDirectory: reports, verificationCache: hints(), progress: { _ in })
-try check(strictlyImported.copied == 1 && strictlyImported.skipped == 0 && (try bytes(cacheTarget)) == damagedBytes, "selected-file import independently rejects a cached destination skip and preserves different existing bytes")
+let strictlyImported = try Importer.run(guessedMatch, cancellation: Cancellation(), reportDirectory: reports, verificationCache: hints(), metadataHelper: helper, progress: { _ in })
+try check(
+    strictlyImported.copied == 1 && strictlyImported.skipped == 0 && (try bytes(cacheTarget)) == damagedBytes,
+    "selected-file import independently rejects a cached destination skip and preserves different existing bytes")
 try check((try bytes(strictlyImported.outcomes[cacheOriginal.path]!)) == cacheOriginalBytes, "new copy from cached preview still matches source byte-for-byte")
 let afterImportHints = try cachedPlan()
 try check(afterImportHints.newCount == 0 && afterImportHints.cachedGroups == 1, "verified imports populate reusable preview hints")
@@ -730,23 +963,267 @@ let noCachePreview = try cachedPlan(reuse: false)
 try fm.removeItem(at: cacheTarget)
 try fm.removeItem(at: hintsDirectory)
 let freshImportHints = hints()
-let strictRepeat = try Importer.run(noCachePreview, cancellation: Cancellation(), reportDirectory: reports, verificationCache: freshImportHints, progress: { _ in })
+let strictRepeat = try Importer.run(noCachePreview, cancellation: Cancellation(), reportDirectory: reports, verificationCache: freshImportHints, metadataHelper: helper, progress: { _ in })
 try check(strictRepeat.copied == 0 && strictRepeat.skipped == 1 && (try cachedPlan().scanReads.hashedBytes) == 0, "a successful import seeds hashes without needing a separate full preview afterward")
 // Metadata changes invalidate a source hint even when the sampled bytes are equal.
 let modifiedSource = try FileHandle(forWritingTo: cacheOriginal)
 try modifiedSource.seek(toOffset: 128 * 1024); try modifiedSource.write(contentsOf: Data([33])); try modifiedSource.close()
 let changedSourcePreview = try cachedPlan()
-try check(changedSourcePreview.newCount == 1 && changedSourcePreview.scanReads.hashedBytes >= UInt64(cacheOriginalBytes.count), "unsampled source edits with changed attributes force a complete new hash")
+try check(
+    changedSourcePreview.newCount == 1 && changedSourcePreview.scanReads.hashedBytes >= UInt64(cacheOriginalBytes.count), "unsampled source edits with changed attributes force a complete new hash")
 let falseSourceHints = hints()
 falseSourceHints.record(cacheOriginal, namespace: cacheScope, info: try Importer.info(cacheOriginal), sample: cacheSample, hash: cacheHash)
 falseSourceHints.save()
 let falseSourcePreview = try cachedPlan()
 try check(falseSourcePreview.newCount == 0 && falseSourcePreview.cachedGroups == 1, "adversarial cached source identity is visibly provisional")
 try rejects("import rejects stale cached source hashes even when samples agree") {
-    _ = try Importer.run(falseSourcePreview, cancellation: Cancellation(), reportDirectory: reports, verificationCache: hints(), progress: { _ in })
+    _ = try Importer.run(falseSourcePreview, cancellation: Cancellation(), reportDirectory: reports, verificationCache: hints(), metadataHelper: helper, progress: { _ in })
 }
 try check((try bytes(strictlyImported.outcomes[cacheOriginal.path]!)) == cacheOriginalBytes, "rejected stale source hint leaves verified originals untouched")
 try fm.removeItem(at: strictlyImported.outcomes[cacheOriginal.path]!)
 try check(try cachedPlan().files.first?.existing == nil, "deleting a cached destination cannot hide a missing copy")
+
+// MARK: Capture dates reuse verified hashes without weakening import placement.
+do {
+    let dateCard = root.appendingPathComponent("DateCacheCard"), dateLibrary = root.appendingPathComponent("DateCacheLibrary")
+    try fm.createDirectory(at: dateCard, withIntermediateDirectories: true)
+    try fm.createDirectory(at: dateLibrary, withIntermediateDirectories: true)
+    let datedSource = dateCard.appendingPathComponent("DATED.JPG"), undatedSource = dateCard.appendingPathComponent("UNDATED.JPG")
+    try cacheOriginalBytes.write(to: datedSource)
+    try fm.copyItem(at: try jpeg("CACHE_NO_DATE.JPG", day: nil, color: 19), to: undatedSource)
+    let datedTarget = dateLibrary.appendingPathComponent("previous-dated.data"), undatedTarget = dateLibrary.appendingPathComponent("previous-undated.data")
+    try fm.copyItem(at: datedSource, to: datedTarget); try fm.copyItem(at: undatedSource, to: undatedTarget)
+    var dateSettings = Settings(); dateSettings.destination = dateLibrary.path
+    let dateHintDirectory = root.appendingPathComponent("DateHints")
+    var dateNow = epoch
+    func dateHints() -> DuplicateVerificationCache { DuplicateVerificationCache(directory: dateHintDirectory, clock: { dateNow }) }
+    func datePreview(reuse: Bool = true, fallback: CaptureDay? = nil) throws -> ImportPlan {
+        try Importer.plan(
+            source: dateCard, settings: dateSettings, event: "", fallback: fallback, helper: helper,
+            cancellation: Cancellation(), verificationCache: dateHints(), reuseCachedHashes: reuse, progress: { _ in })
+    }
+    let dateCold = try datePreview()
+    try check(dateCold.scanReads.cachedCaptureDates == 0 && dateCold.scanReads.headerBytes > 0, "first capture-date scan reads native metadata")
+    let dateWarm = try datePreview()
+    try check(
+        dateWarm.scanReads.cachedCaptureDates == 1 && dateWarm.scanReads.headerBytes == UInt64(try Importer.info(undatedSource).st_size) && dateWarm.scanReads.hashedBytes == 0,
+        "warm preview skips dated original headers while unresolved dates still read fresh")
+    let warmDated = dateWarm.files.first { $0.source == datedSource }!
+    try check(
+        warmDated.cachedCaptureMetadata && warmDated.ownDate == dateCold.files.first { $0.source == datedSource }!.ownDate && warmDated.digest == cacheHash
+            && warmDated.dateOrigin.contains("cached metadata"), "cached dates retain the native day, provenance, and binding to a complete hash")
+    try check(
+        dateWarm.files.first { $0.source == undatedSource }!.ownDate == nil && !dateWarm.files.first { $0.source == undatedSource }!.cachedCaptureMetadata,
+        "missing native dates are never replaced by invented cached dates")
+    let dateFull = try datePreview(reuse: false)
+    try check(
+        dateFull.scanReads.cachedCaptureDates == 0 && dateFull.scanReads.headerBytes > dateWarm.scanReads.headerBytes && dateFull.scanReads.hashedBytes > 0,
+        "Full Verification bypasses both date and hash hints")
+    // A legacy hash-only v1 cache is enriched without extending the original expiry.
+    let dateFile = dateHints().file
+    var legacyDates = try JSONSerialization.jsonObject(with: Data(contentsOf: dateFile)) as! [String: Any]
+    legacyDates["entries"] = (legacyDates["entries"] as! [[String: Any]]).map { row -> [String: Any] in
+        var value = row; value.removeValue(forKey: "captureDay"); value.removeValue(forKey: "captureOrigin"); return value
+    }
+    try JSONSerialization.data(withJSONObject: legacyDates).write(to: dateFile)
+    dateNow = epoch.addingTimeInterval(29 * 24 * 60 * 60)
+    let enrichedDates = try datePreview()
+    try check(enrichedDates.scanReads.cachedCaptureDates == 0 && enrichedDates.scanReads.hashedBytes == 0, "legacy verification cache acquires metadata without repeating complete hashes")
+    let enrichedJSON = try JSONSerialization.jsonObject(with: Data(contentsOf: dateFile)) as! [String: Any]
+    try check((enrichedJSON["entries"] as! [[String: Any]]).allSatisfy { ($0["verifiedAt"] as? Double) == epoch.timeIntervalSince1970 }, "metadata enrichment does not renew hash TTL")
+    try check(try datePreview().scanReads.cachedCaptureDates == 1, "enriched legacy entries reuse dates on the next preview")
+    dateNow = epoch.addingTimeInterval(DuplicateVerificationCache.lifetime)
+    let expiredDates = try datePreview()
+    try check(expiredDates.scanReads.cachedCaptureDates == 0 && expiredDates.scanReads.hashedBytes > 0, "30-day expiry also invalidates cached capture dates")
+    // A disappeared destination must not remove the expected hash protecting reused dates.
+    try fm.removeItem(at: datedTarget)
+    let missingDatedCopy = try datePreview()
+    let missingDatedFile = missingDatedCopy.files.first { $0.source == datedSource }!
+    try check(
+        missingDatedFile.existing == nil && missingDatedFile.cachedCaptureMetadata && missingDatedFile.digest == cacheHash, "a missing destination retains the source hash bound to its cached date")
+    try rejects("cached capture dates require native confirmation before import") {
+        _ = try Importer.run(missingDatedCopy, selection: [missingDatedFile.group], cancellation: Cancellation(), reportDirectory: reports, progress: { _ in })
+    }
+    let dateScope = DuplicateVerificationCache.namespace(root: dateLibrary)!
+    let dateSample = try Importer.fingerprint(datedSource, cancellation: Cancellation()).0
+    let misleadingDates = dateHints()
+    misleadingDates.recordCaptureMetadata(
+        datedSource, namespace: dateScope, info: try Importer.info(datedSource), sample: dateSample,
+        day: CaptureDay(year: 2024, month: 1, day: 1), origin: "incorrect cached field")
+    misleadingDates.save()
+    let wrongDatePreview = try datePreview()
+    try check(wrongDatePreview.files.first { $0.source == datedSource }!.ownDate?.year == 2024, "synthetic corrupted metadata reaches only a labelled preview")
+    try rejects("native date confirmation refuses a valid-looking wrong cached date before publication") {
+        _ = try Importer.run(
+            wrongDatePreview, selection: [missingDatedFile.group], cancellation: Cancellation(), reportDirectory: reports,
+            verificationCache: dateHints(), metadataHelper: helper, progress: { _ in })
+    }
+    try check(
+        !fm.fileExists(atPath: dateLibrary.appendingPathComponent("2024").path) && (try bytes(datedSource)) == cacheOriginalBytes,
+        "corrupted cached dates cannot create wrong folders or alter originals")
+    // Invalid decoded dates are ignored and healed by fresh native metadata.
+    var invalidDates = try JSONSerialization.jsonObject(with: Data(contentsOf: dateFile)) as! [String: Any]
+    invalidDates["entries"] = (invalidDates["entries"] as! [[String: Any]]).map { row -> [String: Any] in
+        var value = row
+        if var day = value["captureDay"] as? [String: Any] { day["month"] = 13; value["captureDay"] = day }
+        return value
+    }
+    try JSONSerialization.data(withJSONObject: invalidDates).write(to: dateFile)
+    let healedDate = try datePreview()
+    try check(
+        healedDate.files.first { $0.source == datedSource }!.ownDate == CaptureDay(year: 2025, month: 5, day: 18) && healedDate.scanReads.cachedCaptureDates == 0,
+        "invalid cached calendar dates fall back to native parsing")
+    // Even a forged origin string cannot falsify the receipt after confirmation.
+    let forgedOriginHints = dateHints()
+    forgedOriginHints.recordCaptureMetadata(
+        datedSource, namespace: dateScope, info: try Importer.info(datedSource), sample: dateSample,
+        day: CaptureDay(year: 2025, month: 5, day: 18), origin: "incorrect cached field")
+    forgedOriginHints.save()
+    let correctDayWrongOrigin = try datePreview()
+    let datedImport = try Importer.run(
+        correctDayWrongOrigin, selection: [missingDatedFile.group], cancellation: Cancellation(), reportDirectory: reports,
+        verificationCache: dateHints(), metadataHelper: helper, progress: { _ in })
+    let datedReceipt = try JSONSerialization.jsonObject(with: Data(contentsOf: datedImport.receipt)) as! [String: Any]
+    try check(
+        datedImport.copied == 1 && (try bytes(datedImport.outcomes[datedSource.path]!)) == cacheOriginalBytes
+            && (datedReceipt["entries"] as! [[String: Any]]).allSatisfy { ($0["dateOrigin"] as? String) == "ExifIFD:DateTimeOriginal" },
+        "native confirmation restores real report provenance and preserves exact copied bytes")
+    // User fallback dates remain source-specific, never cached as original capture metadata.
+    try fm.removeItem(at: undatedTarget)
+    let withFallback = try datePreview(fallback: fallback)
+    let undatedGroup = withFallback.files.first { $0.source == undatedSource }!.group
+    let undatedImport = try Importer.run(
+        withFallback, selection: [undatedGroup], cancellation: Cancellation(), reportDirectory: reports,
+        verificationCache: dateHints(), metadataHelper: helper, progress: { _ in })
+    try check(undatedImport.copied == 1, "explicit fallback still imports an undated original")
+    try fm.removeItem(at: undatedImport.outcomes[undatedSource.path]!)
+    let withoutFallback = try datePreview()
+    try check(
+        withoutFallback.missingDates(in: [undatedGroup]) == 1 && withoutFallback.files.first { $0.source == undatedSource }!.ownDate == nil,
+        "a previous user fallback never becomes cached native capture metadata")
+
+}
+
+// MARK: Other-card copies (ADR-0014, synthetic only)
+let slotCard = root.appendingPathComponent("SlotCard"), slotLibrary = root.appendingPathComponent("SlotLibrary")
+try fm.createDirectory(at: slotCard, withIntermediateDirectories: true)
+try fm.createDirectory(at: slotLibrary.appendingPathComponent("2025/06/01"), withIntermediateDirectories: true)
+func slotNoisyJPEG(_ url: URL, serial: String?, taken: String, seed: UInt8) throws {
+    var pixels = [UInt8](repeating: 0, count: 320 * 320 * 4), state = UInt32(seed) &+ 7
+    for i in pixels.indices { state = state &* 1_103_515_245 &+ 12_345; pixels[i] = i % 4 == 3 ? 255 : UInt8(truncatingIfNeeded: state >> 16) }
+    let image = CGImage(
+        width: 320, height: 320, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: 320 * 4, space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue), provider: CGDataProvider(data: Data(pixels) as CFData)!,
+        decode: nil, shouldInterpolate: false, intent: .defaultIntent)!
+    var exif: [CFString: Any] = [kCGImagePropertyExifDateTimeOriginal: taken]
+    if let serial { exif[kCGImagePropertyExifBodySerialNumber] = serial }
+    let writer = CGImageDestinationCreateWithURL(url as CFURL, "public.jpeg" as CFString, 1, nil)!
+    CGImageDestinationAddImage(writer, image, [kCGImagePropertyExifDictionary: exif, kCGImageDestinationLossyCompressionQuality: 1.0] as CFDictionary)
+    guard CGImageDestinationFinalize(writer) else { throw ImportError("Fixture generation failed") }
+}
+/// The other card's copy: same bytes except one inside the first sample, outside any metadata.
+func slotCopy(of url: URL, at destination: URL, flipping offset: Int? = 20_000) throws {
+    var data = try bytes(url); data[offset ?? data.count / 2] ^= 0x01; try data.write(to: destination)
+}
+let slotShot = slotCard.appendingPathComponent("DSC_0101.JPG")
+try slotNoisyJPEG(slotShot, serial: "Z8-1234567", taken: "2025:06:01 10:00:00", seed: 1)
+let slotTarget = slotLibrary.appendingPathComponent("2025/06/01/DSC_0101.JPG")
+try slotCopy(of: slotShot, at: slotTarget)
+try check(
+    try bytes(slotShot).count > 128 * 1024 && Importer.digest(slotShot, cancellation: Cancellation()).0 != Importer.digest(slotTarget, cancellation: Cancellation()).0,
+    "other-card fixture is large enough for three samples and not byte-identical")
+var slotSettings = Settings(); slotSettings.destination = slotLibrary.path
+func slotPlan(_ mode: OtherCardCopies = .treatAsImported) throws -> ImportPlan {
+    slotSettings.otherCardCopies = mode
+    return try Importer.plan(source: slotCard, settings: slotSettings, event: "", fallback: nil, helper: helper, cancellation: Cancellation(), progress: { _ in })
+}
+try check(try slotPlan(.showAsNew).newCount == 1, "other-card copies stay new by default")
+let slotPreview = try slotPlan()
+try check(
+    slotPreview.newCount == 0 && slotPreview.otherCardGroups == 1 && slotPreview.groups[0].status == .imported
+        && slotPreview.files[0].existing == slotTarget && !slotPreview.files[0].cachedVerification,
+    "a copy differing only outside metadata and the middle and last samples is recognized as imported from the other card")
+let slotDecoded = try JSONDecoder().decode(Settings.self, from: JSONEncoder().encode(slotSettings))
+try check(
+    slotDecoded.otherCardCopies == .treatAsImported && (try JSONDecoder().decode(Settings.self, from: Data("{}".utf8))).otherCardCopies == .showAsNew,
+    "the other-card setting persists and defaults to Show as new")
+
+// Near-twins remain new: a different capture time or serial, no serial, or a changed middle sample.
+enum SlotVariant { case metadata(serial: String?, taken: String), copy(flipping: Int?) }
+let slotNearTwins: [(String, String?, SlotVariant)] = [
+    ("DSC_0102.JPG", "Z8-1234567", .metadata(serial: "Z8-1234567", taken: "2025:06:01 10:00:01")),
+    ("DSC_0103.JPG", nil, .copy(flipping: 20_000)),
+    ("DSC_0104.JPG", "Z8-1234567", .metadata(serial: "Z8-7654321", taken: "2025:06:01 10:00:00")),
+    ("DSC_0105.JPG", "Z8-1234567", .copy(flipping: nil)),
+]
+for (index, (name, serial, variant)) in slotNearTwins.enumerated() {
+    let shot = slotCard.appendingPathComponent(name), target = slotLibrary.appendingPathComponent("2025/06/01/" + name)
+    try slotNoisyJPEG(shot, serial: serial, taken: "2025:06:01 10:00:00", seed: UInt8(index + 2))
+    switch variant {
+    case .metadata(let otherSerial, let taken): try slotNoisyJPEG(target, serial: otherSerial, taken: taken, seed: UInt8(index + 2))
+    case .copy(let offset): try slotCopy(of: shot, at: target, flipping: offset)
+    }
+}
+let slotNearPreview = try slotPlan()
+try check(
+    slotNearPreview.files.allSatisfy { $0.source == slotShot || ($0.existing == nil && !$0.otherCardCopy) }
+        && slotNearPreview.files.filter { $0.source != slotShot }.allSatisfy {
+            (try? Importer.info(slotLibrary.appendingPathComponent("2025/06/01/" + $0.source.lastPathComponent)).st_size) == Int64($0.size)
+        },
+    "same-size near-twins exist for every case")
+try check(
+    slotNearPreview.otherCardGroups == 1 && slotNearPreview.newCount == slotNearTwins.count,
+    "different capture times, serial numbers, missing serials, or middle-sample changes are never other-card copies")
+try check(
+    Importer.shotIdentity(["ExifIFD:SerialNumber": "1", "ExifIFD:DateTimeOriginal": "2025:06:01 10:00:00", "Nikon:MemoryCardNumber": 0, "File:FileName": "a"])
+        == Importer.shotIdentity(["ExifIFD:SerialNumber": "1", "ExifIFD:DateTimeOriginal": "2025:06:01 10:00:00", "Nikon:MemoryCardNumber": 1, "File:FileName": "b"])
+        && Importer.shotIdentity(["ExifIFD:SerialNumber": "1", "ExifIFD:DateTimeOriginal": "2025:06:01 10:00:00", "Nikon:ShutterCount": 5])
+            != Importer.shotIdentity(["ExifIFD:SerialNumber": "1", "ExifIFD:DateTimeOriginal": "2025:06:01 10:00:00", "Nikon:ShutterCount": 6]),
+    "only card-slot and file-system fields may differ between other-card copies")
+for (name, _, _) in slotNearTwins { try fm.removeItem(at: slotCard.appendingPathComponent(name)); try fm.removeItem(at: slotLibrary.appendingPathComponent("2025/06/01/" + name)) }
+
+// Import: omitted other-card copies are noted and preflighted; a selected one becomes a separate copy.
+let slotNew = slotCard.appendingPathComponent("DSC_0200.JPG")
+try slotNoisyJPEG(slotNew, serial: "Z8-1234567", taken: "2025:06:02 09:00:00", seed: 40)
+let slotMixedTwins = try slotPlan()
+let slotImport = try Importer.run(slotMixedTwins, selection: slotMixedTwins.importableNewGroups, cancellation: Cancellation(), reportDirectory: reports, metadataHelper: helper, progress: { _ in })
+try check(
+    slotImport.copied == 1
+        && slotImport.notes.contains { $0.contains("1 photos outside the selection were treated as already imported from the camera's other card") && $0.contains("not byte-identical") },
+    "Import All New skips other-card copies and says they are not byte-identical")
+let slotTargetBytes = try bytes(slotTarget)
+let slotGroup = slotMixedTwins.files.first { $0.source == slotShot }!.group
+let slotExplicitTwin = try Importer.run(slotMixedTwins, selection: [slotGroup], cancellation: Cancellation(), reportDirectory: reports, metadataHelper: helper, progress: { _ in })
+let slotCopy = slotExplicitTwin.outcomes[slotShot.path]!
+try check(
+    slotExplicitTwin.copied == 1 && slotCopy != slotTarget && (try bytes(slotCopy)) == (try bytes(slotShot)) && (try bytes(slotTarget)) == slotTargetBytes,
+    "selecting an other-card copy imports a separate verified copy without touching the existing file")
+try fm.removeItem(at: slotCopy)
+let slotStaleTwins = try slotPlan()
+try slotCopy(of: slotShot, at: slotTarget, flipping: nil)
+try rejects("an omitted other-card match whose destination changed stops import before copying") {
+    _ = try Importer.run(
+        slotStaleTwins, selection: slotStaleTwins.importableNewGroups.union([slotStaleTwins.files.first { $0.source == slotNew }!.group]),
+        cancellation: Cancellation(), reportDirectory: reports, metadataHelper: helper, progress: { _ in })
+}
+
+// MARK: Design tokens
+// The shared table in docs/DESIGN-TOKENS.md is the source of truth; the app's constants must match it.
+let tokenDocument = try String(contentsOfFile: "docs/DESIGN-TOKENS.md", encoding: .utf8)
+func tokenRows(_ heading: String) -> [[String]] {
+    guard let section = tokenDocument.components(separatedBy: "\n## ").first(where: { $0.hasPrefix(heading + "\n") }) else { return [] }
+    return section.split(separator: "\n").filter { $0.hasPrefix("| ") }.dropFirst()
+        .map { $0.split(separator: "|").map { $0.trimmingCharacters(in: .whitespaces) } }
+}
+try check(tokenDocument.hasPrefix("# SENEX family design tokens v\(DesignTokens.version)\n"), "design tokens follow the shared table's version")
+let documentedColors = Dictionary(uniqueKeysWithValues: tokenRows("Colours").map { ($0[0], UInt32($0[1].dropFirst(), radix: 16)) })
+try check(documentedColors == DesignTokens.colors.mapValues { Optional($0) }, "colour tokens match the shared table")
+let documentedRadii = Dictionary(uniqueKeysWithValues: tokenRows("Corner radii").map { ($0[0], Double($0[1])) })
+try check(documentedRadii == DesignTokens.radii.mapValues { Optional($0) }, "corner radii match the shared table")
+let documentedType = Dictionary(
+    uniqueKeysWithValues: tokenRows("Type roles").map { row in
+        (row[0], Double(row[1]).map { DesignTokens.TypeRole(size: $0, semibold: row[2] == "Semibold") })
+    })
+try check(documentedType == DesignTokens.type.mapValues { Optional($0) }, "type roles match the shared table")
 
 print("\(checks) checks passed. Fixtures removed; no real card or photo library was modified.")

@@ -6,20 +6,20 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 root="$(pwd)/build/ui-exercise"
-app="$root/Andermic Photo Importer.app"
+app="$root/Corvus.app"
 screens="$(pwd)/build/screens"
-test -d "dist/Andermic Photo Importer.app" || ./build.sh
-pkill -f "$root/Andermic Photo Importer.app" 2>/dev/null || true
+test -d "dist/Corvus.app" || ./build.sh
+pkill -f "$root/Corvus.app" 2>/dev/null || true
 for volume in /Volumes/SYNTHCARD*; do [[ -d "$volume" ]] && hdiutil detach "$volume" -quiet || true; done
 rm -rf "$root" "$screens"; mkdir -p "$root/run" "$root/Library" "$root/Settings" "$screens"
 
 # Test-only app: the shipped bundle with an executable that also contains the driver.
-ditto "dist/Andermic Photo Importer.app" "$app"
+ditto "dist/Corvus.app" "$app"
 # TCC tracks the bundle identity and signature. Test binaries must not replace
 # the installed app's privacy identity when their ad hoc code hashes change.
-/usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier net.andermic.photoimporter.ui-exercise' "$app/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c 'Set :CFBundleDisplayName Andermic Photo Importer UI Tests' "$app/Contents/Info.plist"
-xcrun swiftc -swift-version 5 -O -D UI_AUTOMATION -module-cache-path build/module-cache Source/Core/*.swift Source/App/*.swift -o "$app/Contents/MacOS/PhotoImport"
+/usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier com.senexapps.corvus.ui-exercise' "$app/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c 'Set :CFBundleDisplayName Corvus UI Tests' "$app/Contents/Info.plist"
+xcrun swiftc -swift-version 5 -O -D UI_AUTOMATION -target "$(uname -m)-apple-macosx13.0" -module-cache-path build/module-cache Source/Core/*.swift Source/App/*.swift -o "$app/Contents/MacOS/corvus"
 codesign --force --sign - --entitlements scripts/camera.entitlements "$app"
 
 # Fixtures: a 26-photo folder card, a large card for cancellation, and a DMG card for insertion.
@@ -46,7 +46,7 @@ wait 1
 expect visible false
 expect policy accessory
 expect tray true
-tray Show Andermic Photo Importer
+tray Show Corvus
 wait 1
 expect visible true
 expect policy regular
@@ -182,16 +182,19 @@ state after-sidecars
 rescan
 waitIdle
 expect cachedGroups 26
+expect cachedDates 24
 expect cacheSavings true
 wait 1
 snap 07-cached-matches
 menu Full Verification
 waitIdle
 expect cachedGroups 0
+expect cachedDates 0
 expect fullRead true
 rescan
 waitIdle
 expect cachedGroups 26
+expect cachedDates 24
 expect cacheSavings true
 # Selecting already-imported groups re-verifies them without making more copies.
 click Select All
@@ -217,7 +220,7 @@ wait 1
 expect visible false
 expect policy accessory
 expect tray true
-tray Show Andermic Photo Importer
+tray Show Corvus
 wait 1
 expect visible true
 expect policy regular
@@ -331,7 +334,7 @@ expect backgroundLaunch false
 quit
 STEPS
 
-open -n "$app" --args -AndermicSettingsDirectory "$root/Settings" -AndermicUIScript "$root/run/script.txt"
+open -n "$app" --args -CorvusSettingsDirectory "$root/Settings" -CorvusUIScript "$root/run/script.txt" -CorvusUIScreens "$screens"
 log="$root/run/script.txt.log"
 deadline=$((SECONDS + 300)); handled=0
 while (( SECONDS < deadline )); do
@@ -342,9 +345,7 @@ while (( SECONDS < deadline )); do
         handled=$((handled + 1))
         line="$(sed -n "${handled}p" "$log")"
         case "$line" in
-            SNAP*) read -r _ name window _ <<<"$line"
-                   sleep 0.4
-                   screencapture -x -o -l "$window" "$screens/$name.png"
+            SNAP*) read -r _ name _ <<<"$line"
                    touch "$root/run/$name.done" ;;
             "SHELL attach-card") hdiutil attach -quiet "$root/card.dmg"; touch "$root/run/attach-card.done" ;;
             "SHELL change-sidecars")
@@ -378,13 +379,13 @@ close
 wait 1
 expect visible false
 expect policy accessory
-tray Show Andermic Photo Importer
+tray Show Corvus
 wait 1
 expect visible true
 expect policy regular
 quit
 STEPS
-open -n "$app" --args -AndermicSettingsDirectory "$root/Settings" -AndermicUIScript "$root/run/foreground.txt"
+open -n "$app" --args -CorvusSettingsDirectory "$root/Settings" -CorvusUIScript "$root/run/foreground.txt"
 foregroundLog="$root/run/foreground.txt.log"
 deadline=$((SECONDS + 30))
 while (( SECONDS < deadline )); do
@@ -397,8 +398,13 @@ echo 'Menu-bar launch, hidden scan, window/Dock lifecycle, settings, and foregro
 
 # Every imported file must byte-match a source original; no staging files may remain.
 python3 - "$root" <<'PY'
-import hashlib, os, sys
+import glob, hashlib, json, os, sys
 root = sys.argv[1]
+reports = [json.load(open(path)) for path in glob.glob(os.path.join(root, 'Settings/Reports/*.json'))]
+cached_reports = [report for report in reports if report.get('complete') and any('full contents were not reread' in note for note in report.get('notes', []))]
+assert cached_reports, 'No completed GUI import reported reuse of omitted previous-import verification'
+assert all(entry['action'] != 'cached' for report in cached_reports for entry in report['entries']), 'Cached omitted files must not become selected verified entries'
+print('GUI imports report historical cached checks separately from selected-file verification.')
 def sha(path):
     h = hashlib.sha256()
     with open(path, 'rb') as f:
@@ -433,4 +439,6 @@ assert len([n for n in thm if n.startswith('MVI_0026__')]) == 2, thm
 print(f'Changed sidecars kept existing files and arrived with matching photo copies: {companions + [n for n in thm if "__" in n]}.')
 print(f'Verified {imported} imported files byte-for-byte against synthetic sources; collision group kept one shared suffix: {suffixed}.')
 PY
+# After a pass, keep only the logs: the rebuilt-each-run fixtures and test app take about 1.8 GB.
+find "$root" -mindepth 1 -maxdepth 1 ! -name run -exec rm -rf {} +
 echo "Screenshots: $screens"

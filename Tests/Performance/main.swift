@@ -1,8 +1,8 @@
-import Foundation
 import AppKit
-import ImageIO
 import CryptoKit
 import Darwin
+import Foundation
+import ImageIO
 
 func require(_ condition: @autoclosure () -> Bool, _ message: String) throws {
     guard condition() else { throw ImportError(message) }
@@ -15,7 +15,8 @@ let thumbnailFile = base.appendingPathComponent("synthetic-4k.jpg")
 if mode == "make-thumbnail" {
     let pixels = Data(repeating: 113, count: 4096 * 4096 * 4)
     let provider = CGDataProvider(data: pixels as CFData)!
-    let image = CGImage(width: 4096, height: 4096, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: 4096 * 4,
+    let image = CGImage(
+        width: 4096, height: 4096, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: 4096 * 4,
         space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
         provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)!
     let writer = CGImageDestinationCreateWithURL(thumbnailFile as CFURL, "public.jpeg" as CFString, 1, nil)!
@@ -66,7 +67,8 @@ try autoreleasepool {
     case "camera":
         let objects = (0..<8).map { CameraObject(id: String($0), folders: ["DCIM"], name: "SYNTH_\($0).NEF", size: fileBytes) }
         let input = try FileHandle(forReadingFrom: source); defer { try? input.close() }
-        let snapshot = try CameraStaging.prepare(objects, camera: "synthetic://memory", cancellation: token, temporaryRoot: root,
+        let snapshot = try CameraStaging.prepare(
+            objects, camera: "synthetic://memory", cancellation: token, temporaryRoot: root,
             read: { _, offset, count in
                 maximumReadRequest = max(maximumReadRequest, count)
                 try input.seek(toOffset: UInt64(offset))
@@ -76,7 +78,8 @@ try autoreleasepool {
         try require(maximumReadRequest <= 4 * 1024 * 1024, "Camera transfer requested an oversized buffer")
         processed = fileBytes * Int64(objects.count)
     case "copy":
-        let file = PlannedFile(source: source, role: .raw, group: 0, namedPrimary: nil, size: UInt64(fileBytes),
+        let file = PlannedFile(
+            source: source, role: .raw, group: 0, namedPrimary: nil, size: UInt64(fileBytes),
             fingerprint: "unused by stage", sourceInfo: try Importer.info(source), digest: expected, existing: nil, ownDate: nil, ownDateOrigin: nil)
         for _ in 0..<8 {
             let staged = try Importer.stage(file, in: root, cancellation: token)
@@ -122,9 +125,11 @@ try autoreleasepool {
     default: throw ImportError("Unknown performance mode")
     }
     let peak = peakRSS(), growth = peak - baseline
-    let report: [String: Any] = ["mode": mode, "processed_bytes": processed, "baseline_rss_bytes": baseline,
+    let report: [String: Any] = [
+        "mode": mode, "processed_bytes": processed, "baseline_rss_bytes": baseline,
         "peak_rss_bytes": peak, "growth_bytes": growth, "elapsed_seconds": Date().timeIntervalSince(started),
-        "progress_updates": progressUpdates, "maximum_read_request": maximumReadRequest]
+        "progress_updates": progressUpdates, "maximum_read_request": maximumReadRequest,
+    ]
     let json = try JSONSerialization.data(withJSONObject: report, options: [.sortedKeys])
     print(String(decoding: json, as: UTF8.self))
     // A generous cross-machine guard catches accumulation of the 512 MiB / 1 GiB

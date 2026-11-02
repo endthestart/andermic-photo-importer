@@ -32,14 +32,15 @@ struct FolderStructure {
 }
 
 final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollectionViewDataSource, NSCollectionViewDelegateFlowLayout,
-                                  NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate, NSToolbarDelegate {
+    NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate, NSToolbarDelegate
+{
     var settings: Settings
     let helper: MetadataHelper?
     let thumbnails = ThumbnailLoader()
     var verificationCacheDirectory: URL {
         if let override = Settings.overrideDirectory { return override.appendingPathComponent("VerificationCache", isDirectory: true) }
         return FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Andermic Photo Importer/DuplicateVerification", isDirectory: true)
+            .appendingPathComponent("Corvus/DuplicateVerification", isDirectory: true)
     }
     var notices: NoticesWindow?
 
@@ -65,7 +66,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
 
     // Display
     var sections: [(title: String, detail: String, entries: [GridEntry])] = []
-    var dateFilter: CaptureDay?? = nil   // nil = all; .some(nil) = no capture date
+    var dateFilter: CaptureDay?? = nil  // nil = all; .some(nil) = no capture date
     var typeFilter = TypeFilter.all
     var tileWidth: CGFloat = 170
 
@@ -79,7 +80,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     let collection = PhotoCollectionView()
     let gridScroll = DropScrollView()
     let emptyState = NSTextField(wrappingLabelWithString: "")
-    let progressBar = NSProgressIndicator()
+    let progressBar = PillProgress()
     let statusLabel = NSTextField(labelWithString: "")
     let selectionLabel = NSTextField(labelWithString: "")
     let cancelButton = NSButton(title: "Stop", target: nil, action: nil)
@@ -105,6 +106,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     let advancedToggle = NSButton(title: "", target: nil, action: nil)
     let advancedBox = NSStackView()
     let cardBehaviorPopup = NSPopUpButton()
+    let otherCardPopup = NSPopUpButton()
     let backgroundLaunch = NSButton(checkboxWithTitle: "Start in the menu bar without a window", target: nil, action: nil)
     let editorPath = NSTextField(labelWithString: "")
     var inspectorItem: NSSplitViewItem!
@@ -112,9 +114,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
 
     init(settings: Settings, helper: MetadataHelper?) {
         self.settings = settings; self.helper = helper
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1320, height: 820),
-                              styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
-        window.title = "Andermic Photo Importer"
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1320, height: 820),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+        window.title = "Corvus"
+        window.backgroundColor = Theme.chrome
+        window.titlebarAppearsTransparent = true
         window.minSize = NSSize(width: 1040, height: 620)
         window.isReleasedWhenClosed = false
         window.toolbarStyle = .unified
@@ -126,7 +131,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         loadInspector()
         refresh()
         let cacheDirectory = verificationCacheDirectory
-        DispatchQueue.global(qos: .utility).async { DuplicateVerificationCache(directory: cacheDirectory).save() }
+        let earlierCaches =
+            Settings.overrideDirectory == nil
+            ? FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("Andermic Photo Importer", isDirectory: true) : nil
+        if let earlierCaches { DuplicateVerificationCache.adopt(from: earlierCaches.appendingPathComponent("DuplicateVerification", isDirectory: true), into: cacheDirectory) }
+        DispatchQueue.global(qos: .utility).async {
+            DuplicateVerificationCache(directory: cacheDirectory).save()
+            CameraStaging.removeAbandoned()
+            if let earlierCaches { CameraStaging.removeAbandoned(in: earlierCaches.appendingPathComponent("CameraTransfers", isDirectory: true), prefix: "andermic-camera-") }
+        }
     }
     required init?(coder: NSCoder) { fatalError() }
 
@@ -145,7 +158,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         let split = NSSplitViewController()
         split.splitView.autosaveName = "MainSplit"
         sidebarItem = NSSplitViewItem(sidebarWithViewController: viewController(buildSidebar()))
-        sidebarItem.minimumThickness = 190; sidebarItem.maximumThickness = 280
+        sidebarItem.minimumThickness = 210; sidebarItem.maximumThickness = 280
         let center = NSSplitViewItem(viewController: viewController(buildCenter()))
         center.minimumThickness = 520
         inspectorItem = NSSplitViewItem(viewController: viewController(buildInspector()))
@@ -193,7 +206,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         choose.bezelStyle = .rounded; choose.controlSize = .regular
         let hint = small("Connect a USB camera, insert a card, or choose a folder.")
         let footer = NSStackView(views: [choose, hint]); footer.orientation = .vertical; footer.alignment = .leading; footer.spacing = 8
-        let view = NSView()
+        let view = NSView(); Theme.fill(view, Theme.chrome)
         for item in [scroll, footer] as [NSView] { item.translatesAutoresizingMaskIntoConstraints = false; view.addSubview(item) }
         NSLayoutConstraint.activate([
             scroll.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
@@ -207,8 +220,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     }
 
     func buildCenter() -> NSView {
-        titleLabel.font = .systemFont(ofSize: 18, weight: .semibold); titleLabel.lineBreakMode = .byTruncatingMiddle
-        countsLabel.font = .systemFont(ofSize: 12); countsLabel.textColor = .secondaryLabelColor
+        titleLabel.font = Theme.font("heading"); titleLabel.textColor = Theme.text; titleLabel.lineBreakMode = .byTruncatingMiddle
+        countsLabel.font = Theme.font("secondary"); countsLabel.textColor = Theme.muted
         countsLabel.lineBreakMode = .byTruncatingTail
         countsLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         datePopup.target = self; datePopup.action = #selector(filtersChanged); datePopup.controlSize = .small
@@ -221,7 +234,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         sizeSlider.widthAnchor.constraint(equalToConstant: 90).isActive = true
         let smallIcon = NSImageView(image: NSImage(systemSymbolName: "photo", accessibilityDescription: nil)!)
         let largeIcon = NSImageView(image: NSImage(systemSymbolName: "photo", accessibilityDescription: nil)!.withSymbolConfiguration(.init(pointSize: 15, weight: .regular))!)
-        for icon in [smallIcon, largeIcon] { icon.contentTintColor = .secondaryLabelColor }
+        for icon in [smallIcon, largeIcon] { icon.contentTintColor = Theme.muted }
         let titles = NSStackView(views: [titleLabel, countsLabel]); titles.orientation = .vertical; titles.alignment = .leading; titles.spacing = 2
         titles.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         selectAllButton.target = self; selectAllButton.action = #selector(selectAll(_:))
@@ -247,18 +260,16 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         collection.dataSource = self; collection.delegate = self
         collection.isSelectable = false
         collection.onSelectAll = { [weak self] in self?.selectAll(nil) }
-        collection.backgroundColors = [.windowBackgroundColor]
+        collection.backgroundColors = [Theme.ground]
         collection.register(GroupTileItem.self, forItemWithIdentifier: GroupTileItem.identifier)
         collection.register(SectionHeader.self, forSupplementaryViewOfKind: NSCollectionView.elementKindSectionHeader, withIdentifier: SectionHeader.identifier)
         collection.setAccessibilityLabel("Photos to import")
         gridScroll.documentView = collection; gridScroll.hasVerticalScroller = true; gridScroll.drawsBackground = false
         gridScroll.onDropFolder = { [weak self] url in self?.setSource(url, scan: true) }
-        emptyState.alignment = .center; emptyState.textColor = .secondaryLabelColor; emptyState.font = .systemFont(ofSize: 14)
+        emptyState.alignment = .center; emptyState.textColor = Theme.muted; emptyState.font = .systemFont(ofSize: 13)
 
-        progressBar.style = .bar; progressBar.isIndeterminate = true; progressBar.isDisplayedWhenStopped = false
-        progressBar.controlSize = .small; progressBar.minValue = 0; progressBar.maxValue = 1
         progressBar.widthAnchor.constraint(equalToConstant: 140).isActive = true
-        statusLabel.font = .systemFont(ofSize: 12); statusLabel.textColor = .secondaryLabelColor; statusLabel.lineBreakMode = .byTruncatingTail
+        statusLabel.font = Theme.font("secondary"); statusLabel.textColor = Theme.muted; statusLabel.lineBreakMode = .byTruncatingTail
         statusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         selectionLabel.font = .systemFont(ofSize: 12, weight: .medium); selectionLabel.lineBreakMode = .byTruncatingTail
         selectionLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -268,11 +279,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         importSelectedButton.keyEquivalent = "\r"
         let statusStack = NSStackView(views: [selectionLabel, statusLabel]); statusStack.orientation = .vertical; statusStack.alignment = .leading; statusStack.spacing = 1
         statusStack.setContentHuggingPriority(.init(1), for: .horizontal)
-        let footer = NSStackView(views: [progressBar, statusStack, cancelButton, importAllButton, importSelectedButton])
+        let footer = NSStackView(views: [progressBar, statusStack, NSView(), cancelButton, importAllButton, importSelectedButton])
         footer.spacing = 10; footer.alignment = .centerY
         footer.edgeInsets = NSEdgeInsets(top: 10, left: 20, bottom: 12, right: 20)
 
-        let view = NSView()
+        let view = NSView(); Theme.fill(view, Theme.chrome)
         let topRule = NSBox(), bottomRule = NSBox(); topRule.boxType = .separator; bottomRule.boxType = .separator
         for item in [header, topRule, gridScroll, emptyState, bottomRule, footer] as [NSView] { item.translatesAutoresizingMaskIntoConstraints = false; view.addSubview(item) }
         NSLayoutConstraint.activate([
@@ -305,18 +316,19 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         templateField.font = .monospacedSystemFont(ofSize: 12, weight: .regular); templateField.delegate = self
         templateField.setAccessibilityLabel("Folder template")
         eventField.placeholderString = "For example, Lisbon Trip"; eventField.delegate = self; eventField.setAccessibilityLabel("Event name")
-        previewLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular); previewLabel.textColor = .secondaryLabelColor
+        previewLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular); previewLabel.textColor = Theme.muted
         previewLabel.setAccessibilityLabel("Destination preview")
         fallbackPicker.datePickerStyle = .textFieldAndStepper; fallbackPicker.datePickerElements = [.yearMonthDay]; fallbackPicker.dateValue = Date()
         fallbackPicker.target = self; fallbackPicker.action = #selector(organizationChanged)
         fallbackCheck.target = self; fallbackCheck.action = #selector(organizationChanged)
         fallbackBox.orientation = .vertical; fallbackBox.alignment = .leading; fallbackBox.spacing = 6
-        for view in [section("MISSING CAPTURE DATES"), small("Some photos have no capture date. Nothing is guessed: choose a date for them, or leave them unselected."), fallbackCheck, fallbackPicker] {
+        for view in [section("Missing capture dates"), small("Some photos have no capture date. Nothing is guessed: choose a date for them, or leave them unselected."), fallbackCheck, fallbackPicker]
+        {
             fallbackBox.addArrangedSubview(view)
         }
         openEditor.target = self; openEditor.action = #selector(completionChanged)
         ejectCheck.target = self; ejectCheck.action = #selector(completionChanged)
-        editorNote.font = .systemFont(ofSize: 11); editorNote.textColor = .secondaryLabelColor
+        editorNote.font = Theme.font("note"); editorNote.textColor = Theme.muted
         advancedToggle.bezelStyle = .disclosure; advancedToggle.setButtonType(.pushOnPushOff); advancedToggle.state = .off
         advancedToggle.target = self; advancedToggle.action = #selector(toggleAdvanced); advancedToggle.setAccessibilityLabel("Show advanced options")
         let advancedTitle = NSButton(title: "Advanced", target: self, action: #selector(toggleAdvancedFromTitle)); advancedTitle.isBordered = false
@@ -326,25 +338,34 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         cardBehaviorPopup.target = self; cardBehaviorPopup.action = #selector(cardBehaviorChanged)
         cardBehaviorPopup.setAccessibilityLabel("When a card is inserted")
         backgroundLaunch.target = self; backgroundLaunch.action = #selector(backgroundLaunchChanged)
+        otherCardPopup.addItems(withTitles: ["Show as new", "Treat as imported"])
+        otherCardPopup.target = self; otherCardPopup.action = #selector(otherCardChanged)
+        otherCardPopup.setAccessibilityLabel("Photos already imported from the camera's other card")
         let loginItems = NSButton(title: "Login Items…", target: NSApp.delegate, action: #selector(AppDelegate.showLoginItems))
-        editorPath.font = .systemFont(ofSize: 11); editorPath.textColor = .secondaryLabelColor; editorPath.lineBreakMode = .byTruncatingMiddle
+        editorPath.font = Theme.font("note"); editorPath.textColor = Theme.muted; editorPath.lineBreakMode = .byTruncatingMiddle
         let chooseEditor = NSButton(title: "Choose Editor…", target: self, action: #selector(chooseEditor))
         let reportsButton = NSButton(title: "Show Import Reports", target: self, action: #selector(showReports))
         let noticesButton = NSButton(title: "Third-Party Notices…", target: NSApp.delegate, action: #selector(AppDelegate.showNotices))
         advancedBox.orientation = .vertical; advancedBox.alignment = .leading; advancedBox.spacing = 8
-        for view in [label("Startup"), backgroundLaunch, loginItems,
-                     small("To start at login, add this app under Open at Login in macOS Login Items. The menu-bar option keeps its window closed on launch."),
-                     label("When a card is inserted"), cardBehaviorPopup,
-                     small("Scanning only previews. Copying always waits for an import button, and an import in progress is never interrupted."),
-                     label("Editor handoff"), editorPath, chooseEditor,
-                     label("Folder template tokens"),
-                     small("{YYYY} year · {YY} short year · {MM} month · {DD} day · {event} event name. Use / between folder levels. Each photo uses its own camera-recorded capture day."),
-                     reportsButton, noticesButton] {
+        for view in [
+            label("Startup"), backgroundLaunch, loginItems,
+            small("To start at login, add this app under Open at Login in macOS Login Items. The menu-bar option keeps its window closed on launch."),
+            label("When a card is inserted"), cardBehaviorPopup,
+            small("Scanning only previews. Copying always waits for an import button, and an import in progress is never interrupted."),
+            label("Photos already imported from the camera's other card"), otherCardPopup,
+            small(
+                "Cameras recording to two cards mark each copy with its card slot, so the copies are not byte-identical. Treat as imported matches the camera serial number, capture time, metadata, size, and samples."
+            ),
+            label("Editor handoff"), editorPath, chooseEditor,
+            label("Folder template tokens"),
+            small("{YYYY} year · {YY} short year · {MM} month · {DD} day · {event} event name. Use / between folder levels. Each photo uses its own camera-recorded capture day."),
+            reportsButton, noticesButton,
+        ] {
             advancedBox.addArrangedSubview(view)
         }
         advancedBox.isHidden = true
 
-        let folderIcon = NSImageView(image: NSImage(systemSymbolName: "folder", accessibilityDescription: nil)!); folderIcon.contentTintColor = .controlAccentColor
+        let folderIcon = NSImageView(image: NSImage(systemSymbolName: "folder", accessibilityDescription: nil)!); folderIcon.contentTintColor = Theme.accent
         let destinationRow = NSStackView(views: [folderIcon, destinationPath, destinationButton]); destinationRow.spacing = 6
         destinationPath.setContentHuggingPriority(.defaultLow, for: .horizontal)
         destinationPath.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -352,16 +373,16 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         content.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 20, right: 16)
         let views: [NSView] = [
             heading("Import Options"),
-            section("PRESET"), presetPopup,
+            section("Preset"), presetPopup,
             divider(),
-            section("DESTINATION"), destinationRow,
-            section("FOLDER STRUCTURE"), structurePopup, templateField,
-            section("EVENT NAME (OPTIONAL)"), eventField,
+            section("Destination"), destinationRow,
+            section("Folder structure"), structurePopup, templateField,
+            section("Event name (optional)"), eventField,
             small("Only used by structures that include {event}. Photos from several days go into each day's folder."),
-            section("RESULTING FOLDERS"), previewLabel,
+            section("Resulting folders"), previewLabel,
             fallbackBox,
             divider(),
-            section("AFTER IMPORT"), openEditor, editorNote, ejectCheck,
+            section("After import"), openEditor, editorNote, ejectCheck,
             divider(),
             advancedRow, advancedBox,
         ]
@@ -376,7 +397,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         let document = FlippedView(); document.translatesAutoresizingMaskIntoConstraints = false
         content.translatesAutoresizingMaskIntoConstraints = false; document.addSubview(content)
         let scroll = NSScrollView(); scroll.documentView = document; scroll.hasVerticalScroller = true; scroll.drawsBackground = false
-        let view = NSView(); scroll.translatesAutoresizingMaskIntoConstraints = false; view.addSubview(scroll)
+        let view = NSView(); Theme.fill(view, Theme.chrome); scroll.translatesAutoresizingMaskIntoConstraints = false; view.addSubview(scroll)
         NSLayoutConstraint.activate([
             scroll.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor), scroll.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             scroll.leadingAnchor.constraint(equalTo: view.leadingAnchor), scroll.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -387,10 +408,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         return view
     }
 
-    func heading(_ text: String) -> NSTextField { let field = NSTextField(labelWithString: text); field.font = .systemFont(ofSize: 15, weight: .semibold); return field }
-    func section(_ text: String) -> NSTextField { let field = NSTextField(labelWithString: text); field.font = .systemFont(ofSize: 10, weight: .semibold); field.textColor = .secondaryLabelColor; return field }
+    func heading(_ text: String) -> NSTextField { let field = NSTextField(labelWithString: text); field.font = Theme.font("panel"); field.textColor = Theme.text; return field }
+    func section(_ text: String) -> NSTextField { Theme.sectionLabel(text) }
     func label(_ text: String) -> NSTextField { let field = NSTextField(labelWithString: text); field.font = .systemFont(ofSize: 12, weight: .medium); return field }
-    func small(_ text: String) -> NSTextField { let field = NSTextField(wrappingLabelWithString: text); field.font = .systemFont(ofSize: 11); field.textColor = .secondaryLabelColor; return field }
+    func small(_ text: String) -> NSTextField { let field = NSTextField(wrappingLabelWithString: text); field.font = Theme.font("note"); field.textColor = Theme.muted; return field }
     func divider() -> NSBox { let box = NSBox(); box.boxType = .separator; return box }
 
     // MARK: Settings
@@ -404,6 +425,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         ejectCheck.state = settings.eject ? .on : .off
         cardBehaviorPopup.selectItem(at: settings.cardInsertion == .showAndScan ? 0 : (settings.cardInsertion == .indicate ? 1 : 2))
         backgroundLaunch.state = settings.launchInBackground ? .on : .off
+        otherCardPopup.selectItem(at: settings.otherCardCopies == .treatAsImported ? 1 : 0)
         rebuildPresetMenu()
     }
 
@@ -411,8 +433,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
 
     func rebuildPresetMenu() {
         presetPopup.removeAllItems()
-        let current = settings.presets.firstIndex { $0.destination == settings.destination && $0.folderTemplate == settings.folderTemplate
-            && $0.openInEditor == settings.openInDxO && $0.eject == settings.eject }
+        let current = settings.presets.firstIndex {
+            $0.destination == settings.destination && $0.folderTemplate == settings.folderTemplate
+                && $0.openInEditor == settings.openInDxO && $0.eject == settings.eject
+        }
         presetPopup.addItem(withTitle: current == nil ? "Current Settings" : settings.presets[current!].name)
         presetPopup.menu?.addItem(.separator())
         for (index, preset) in settings.presets.enumerated() {
@@ -433,9 +457,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     @objc func presetChosen() {
         let tag = presetPopup.selectedItem?.tag ?? 0
         if presetPopup.indexOfSelectedItem == 0 { return }
-        if tag == -2 { savePreset() }
-        else if tag <= -3 { settings.presets.remove(at: -3 - tag); persist() }
-        else if settings.presets.indices.contains(tag) {
+        if tag == -2 {
+            savePreset()
+        } else if tag <= -3 {
+            settings.presets.remove(at: -3 - tag); persist()
+        } else if settings.presets.indices.contains(tag) {
             let preset = settings.presets[tag]
             let destinationChanged = preset.destination != settings.destination
             settings.destination = preset.destination; settings.folderTemplate = preset.folderTemplate
@@ -457,8 +483,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         let title = name.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty else { return }
         settings.presets.removeAll { $0.name == title }
-        settings.presets.append(ImportPreset(name: title, destination: settings.destination, folderTemplate: settings.folderTemplate,
-                                             openInEditor: settings.openInDxO, eject: settings.eject))
+        settings.presets.append(
+            ImportPreset(
+                name: title, destination: settings.destination, folderTemplate: settings.folderTemplate,
+                openInEditor: settings.openInDxO, eject: settings.eject))
         settings.presets.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         persist()
     }
@@ -499,6 +527,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     @objc func completionChanged() { settings.openInDxO = openEditor.state == .on; settings.eject = ejectCheck.state == .on; persist(); rebuildPresetMenu() }
     @objc func cardBehaviorChanged() { settings.cardInsertion = [CardInsertionBehavior.showAndScan, .indicate, .scanInBackground][cardBehaviorPopup.indexOfSelectedItem]; persist() }
     @objc func backgroundLaunchChanged() { settings.launchInBackground = backgroundLaunch.state == .on; persist() }
+    @objc func otherCardChanged() {
+        settings.otherCardCopies = otherCardPopup.indexOfSelectedItem == 1 ? .treatAsImported : .showAsNew; persist(); rescan()
+    }
     @objc func toggleAdvanced() { advancedBox.isHidden = advancedToggle.state == .off }
     @objc func toggleAdvancedFromTitle() { advancedToggle.state = advancedToggle.state == .on ? .off : .on; toggleAdvanced() }
     func showAdvanced() { advancedToggle.state = .on; toggleAdvanced(); if inspectorItem.isCollapsed { toggleInspector() } }
@@ -534,8 +565,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
                 plan = updated
             } catch { organizeError = error.localizedDescription }
         } else {
-            do { _ = try Importer.folder(template: settings.folderTemplate, event: event, date: CaptureDay(year: 2026, month: 10, day: 4)) }
-            catch { organizeError = error.localizedDescription }
+            do { _ = try Importer.folder(template: settings.folderTemplate, event: event, date: CaptureDay(year: 2026, month: 10, day: 4)) } catch { organizeError = error.localizedDescription }
         }
         refresh()
     }
@@ -581,7 +611,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
                 status("Card “\(card.lastPathComponent)” is available. Select it to scan.")
             }
         } else if source == nil, state == .idle, let card = list.first, settings.cardInsertion != .indicate,
-                  Date().timeIntervalSince(launched) < 10 {
+            Date().timeIntervalSince(launched) < 10
+        {
             // Startup can scan an existing card while the window stays closed.
             // Later insertions follow the separate card setting.
             // Later list changes (such as ejecting the current card) never switch to another card.
@@ -605,7 +636,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         var rows: [(String, URL?, String, Bool)] = [("CARDS", nil, "", true)]
         rows += cards.isEmpty ? [("No cards detected", nil, "sdcard", false)] : cards.map { ($0.lastPathComponent, $0, "sdcard", false) }
         rows += [("CAMERAS", nil, "", true)]
-        rows += cameras.isEmpty ? [("No USB cameras detected", nil, "camera", false)] : cameras.map { ($0.name, $0.url, "camera", false) }
+        rows += cameras.isEmpty ? [("No cameras detected", nil, "camera", false)] : cameras.map { ($0.name, $0.url, "camera", false) }
         if let source, source.isFileURL, !cards.contains(source) { rows += [("FOLDER", nil, "", true), (source.lastPathComponent, source, "folder", false)] }
         return rows
     }
@@ -615,32 +646,33 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let item = sidebarRows[row]
         if item.header {
-            let field = NSTextField(labelWithString: item.title); field.font = .systemFont(ofSize: 11, weight: .semibold); field.textColor = .secondaryLabelColor
-            return field
+            return Theme.sectionLabel(item.title)
         }
         let cell = NSTableCellView()
         let image = NSImageView(image: NSImage(systemSymbolName: item.icon, accessibilityDescription: nil)!)
-        image.contentTintColor = item.url == nil ? .tertiaryLabelColor : .controlAccentColor
+        image.contentTintColor = item.url == nil ? Theme.muted : Theme.accent
+        image.setContentCompressionResistancePriority(.required, for: .horizontal)  // long names truncate; the icon stays
         let text = NSTextField(labelWithString: item.title); text.lineBreakMode = .byTruncatingMiddle
-        text.textColor = item.url == nil ? .secondaryLabelColor : .labelColor
+        text.textColor = item.url == nil ? Theme.muted : Theme.text
         var views: [NSView] = [image, text]
         if let url = item.url, newlyAvailable.contains(url) {
             let dot = NSImageView(image: NSImage(systemSymbolName: "circle.fill", accessibilityDescription: "New card")!.withSymbolConfiguration(.init(pointSize: 7, weight: .regular))!)
-            dot.contentTintColor = .controlAccentColor; views.append(dot)
+            dot.contentTintColor = Theme.accent; views.append(dot)
         }
         if let url = item.url, url == source, state == .importing || state == .scanning {
             let spinner = NSProgressIndicator(); spinner.style = .spinning; spinner.controlSize = .small; spinner.startAnimation(nil); views.append(spinner)
         }
         let stack = NSStackView(views: views); stack.spacing = 6; stack.translatesAutoresizingMaskIntoConstraints = false
         cell.addSubview(stack); cell.textField = text; cell.imageView = image
-        NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 2), stack.trailingAnchor.constraint(lessThanOrEqualTo: cell.trailingAnchor, constant: -4),
-                                     stack.centerYAnchor.constraint(equalTo: cell.centerYAnchor)])
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 2), stack.trailingAnchor.constraint(lessThanOrEqualTo: cell.trailingAnchor, constant: -4),
+            stack.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+        ])
         cell.setAccessibilityLabel(item.title + (item.url.map { newlyAvailable.contains($0) ? ", new card" : "" } ?? ""))
         return cell
     }
     func selectSidebarRow() {
-        if let index = sidebarRows.firstIndex(where: { $0.url != nil && $0.url == source }) { sidebar.selectRowIndexes([index], byExtendingSelection: false) }
-        else { sidebar.deselectAll(nil) }
+        if let index = sidebarRows.firstIndex(where: { $0.url != nil && $0.url == source }) { sidebar.selectRowIndexes([index], byExtendingSelection: false) } else { sidebar.deselectAll(nil) }
     }
     @objc func sidebarClicked() {
         let row = sidebar.clickedRow >= 0 ? sidebar.clickedRow : sidebar.selectedRow
@@ -683,7 +715,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
 
     func startScan(reuseCachedHashes: Bool = true) {
         guard let source, state != .importing else { return }
-        guard let helper else { showError(ImportError("The app's built-in metadata reader is missing. Reinstall Andermic Photo Importer.")); return }
+        guard let helper else { showError("Metadata reader missing", ImportError("The app's built-in metadata reader is missing. Reinstall Corvus.")); return }
         scanToken?.cancel()
         scanGeneration += 1
         let generation = scanGeneration, token = Cancellation()
@@ -704,37 +736,43 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         let cacheDirectory = verificationCacheDirectory
         refresh(); onStateChange?()
         let scan: (CameraSnapshot?) -> Void = { [weak self] snapshot in
-          guard let self, generation == self.scanGeneration, !token.isCancelled else { return }
-          self.cameraSnapshot = snapshot
-          let input = snapshot?.directory ?? source
-          DispatchQueue.global(qos: .userInitiated).async { [weak self, snapshot] in
-            do {
-                var value = try Importer.plan(source: input, settings: scanSettings, event: scanSettings.folderTemplate.contains("{event}") ? event : "", fallback: fallback,
-                                              helper: helper, cancellation: token,
-                                              verificationCache: DuplicateVerificationCache(directory: cacheDirectory), reuseCachedHashes: reuseCachedHashes,
-                                              progress: { update in DispatchQueue.main.async { self?.scanProgress(update, generation) } },
-                                              discovered: { groups in DispatchQueue.main.async { self?.discovered(groups, generation) } })
-                if let snapshot {
-                    value.sourceDescription = source.absoluteString
-                    value.sourceFileDescriptions = snapshot.origins
-                    for index in value.files.indices { value.files[index].digest = snapshot.hashes[value.files[index].source.path] }
+            guard let self, generation == self.scanGeneration, !token.isCancelled else { return }
+            self.cameraSnapshot = snapshot
+            let input = snapshot?.directory ?? source
+            DispatchQueue.global(qos: .userInitiated).async { [weak self, snapshot] in
+                do {
+                    var value = try Importer.plan(
+                        source: input, settings: scanSettings, event: scanSettings.folderTemplate.contains("{event}") ? event : "", fallback: fallback,
+                        helper: helper, cancellation: token,
+                        verificationCache: DuplicateVerificationCache(directory: cacheDirectory), reuseCachedHashes: reuseCachedHashes,
+                        transferred: snapshot?.transferred ?? [:],
+                        progress: { update in DispatchQueue.main.async { self?.scanProgress(update, generation) } },
+                        discovered: { groups in DispatchQueue.main.async { self?.discovered(groups, generation) } })
+                    if let snapshot {
+                        value.sourceDescription = source.absoluteString
+                        value.sourceFileDescriptions = snapshot.origins
+                    }
+                    DispatchQueue.main.async { self?.scanFinished(value, generation) }
+                } catch {
+                    DispatchQueue.main.async { self?.scanFailed(error, generation, token) }
                 }
-                DispatchQueue.main.async { self?.scanFinished(value, generation) }
-            } catch {
-                DispatchQueue.main.async { self?.scanFailed(error, generation, token) }
             }
-          }
         }
         if let camera = cameras.first(where: { $0.url == source }) {
-            camera.prepare(cancellation: token, progress: { [weak self] update in
-                DispatchQueue.main.async { self?.scanProgress(update, generation) }
-            }, completion: { [weak self] result in
-                switch result {
-                case .success(let snapshot): scan(snapshot)
-                case .failure(let error): self?.scanFailed(error, generation, token)
-                }
-            })
-        } else { scan(nil) }
+            camera.prepare(
+                cancellation: token,
+                progress: { [weak self] update in
+                    DispatchQueue.main.async { self?.scanProgress(update, generation) }
+                },
+                completion: { [weak self] result in
+                    switch result {
+                    case .success(let snapshot): scan(snapshot)
+                    case .failure(let error): self?.scanFailed(error, generation, token)
+                    }
+                })
+        } else {
+            scan(nil)
+        }
     }
 
     func scanProgress(_ update: ImportProgress, _ generation: Int) {
@@ -753,16 +791,21 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         plan = value; preliminary = nil
         state = .idle; progressBar.stopAnimation(nil)
         organizeError = nil
-        do { plan = try value.organized(template: settings.folderTemplate, event: event, fallback: fallback) }
-        catch { organizeError = error.localizedDescription }
+        do { plan = try value.organized(template: settings.folderTemplate, event: event, fallback: fallback) } catch { organizeError = error.localizedDescription }
         selection = plan?.importableNewGroups ?? []
         sidebar.reloadData(); selectSidebarRow()
         let elapsed = Date().timeIntervalSince(scanStarted)
         let reads = value.scanReads
-        status(String(format: "Scanned in %.1f s · %@ read to check %@ of photos.", elapsed,
-                      ByteCountFormatter.string(fromByteCount: Int64(reads.total), countStyle: .file),
-                      ByteCountFormatter.string(fromByteCount: Int64(value.files.reduce(0) { $0 + $1.size }), countStyle: .file))
-               + (value.cachedGroups > 0 ? " \(value.cachedGroups) cached matches; full contents are rechecked during import. File > Full Verification bypasses the cache." : ""))
+        var summary = String(
+            format: "Scanned in %.1f s · %@ read to check %@ of photos.", elapsed,
+            ByteCountFormatter.string(fromByteCount: Int64(reads.total), countStyle: .file),
+            ByteCountFormatter.string(fromByteCount: Int64(value.files.reduce(0) { $0 + $1.size }), countStyle: .file))
+        if reads.cachedCaptureDates > 0 { summary += " \(reads.cachedCaptureDates) cached capture dates." }
+        if value.cachedGroups > 0 {
+            summary += " \(value.cachedGroups) cached matches. Import checks attributes and samples for unselected previous imports; Full Verification rereads complete contents."
+        }
+        if value.otherCardGroups > 0 { summary += " \(value.otherCardGroups) imported from the camera's other card." }
+        status(summary)
         refresh()
         gridScroll.contentView.scroll(to: .zero)
         gridScroll.reflectScrolledClipView(gridScroll.contentView)
@@ -774,7 +817,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         refresh(); sidebar.reloadData(); selectSidebarRow(); onStateChange?()
         if token.isCancelled { status("Scan stopped."); return }
         status(error.localizedDescription)
-        showError(error)
+        showError("Scan did not finish", error)
     }
 
     // MARK: Grid
@@ -802,9 +845,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
                 let files = members.count == 1 ? "1 file" : "\(members.count) files"
                 let destination = group.folder.map { "\(plan.root.lastPathComponent)/\($0)/" }
                 let thumbnail = primaries.first { $0.role == .image }?.source ?? primaries[0].source
-                return GridEntry(id: group.id, name: group.name, thumbnail: thumbnail, kinds: kinds, fileCount: members.count,
-                                 detail: "\(date) · \(files)", status: group.status, missingDate: plan.missingDates(in: [group.id]) > 0, destination: destination,
-                                 dateOrigin: group.date == nil ? nil : group.dateOrigin, cachedVerification: members.contains(where: \.cachedVerification))
+                return GridEntry(
+                    id: group.id, name: group.name, thumbnail: thumbnail, kinds: kinds, fileCount: members.count,
+                    detail: "\(date) · \(files)", status: group.status, missingDate: plan.missingDates(in: [group.id]) > 0, destination: destination,
+                    dateOrigin: group.date == nil ? nil : group.dateOrigin, cachedVerification: members.contains(where: \.cachedVerification), otherCard: members.contains(where: \.otherCardCopy))
             }
             let fresh = visible.filter(\.isNew).map(entry)
             let other = visible.filter { !$0.isNew }.map(entry)
@@ -815,10 +859,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         }
         if let preliminary {
             let items = preliminary.enumerated().map { index, group in
-                GridEntry(id: index, name: group.primaries[0].deletingPathExtension().lastPathComponent,
-                          thumbnail: group.primaries.first { MediaTypes.role(of: $0) == .image } ?? group.primaries[0],
-                          kinds: group.primaries.map { $0.pathExtension.uppercased() }.joined(separator: " + ") + (group.sidecars.isEmpty ? "" : " · +\(group.sidecars.count)"),
-                          fileCount: group.members.count, detail: "Checking…", status: nil, missingDate: false, destination: nil)
+                GridEntry(
+                    id: index, name: group.primaries[0].deletingPathExtension().lastPathComponent,
+                    thumbnail: group.primaries.first { MediaTypes.role(of: $0) == .image } ?? group.primaries[0],
+                    kinds: group.primaries.map { $0.pathExtension.uppercased() }.joined(separator: " + ") + (group.sidecars.isEmpty ? "" : " · +\(group.sidecars.count)"),
+                    fileCount: group.members.count, detail: "Checking…", status: nil, missingDate: false, destination: nil)
             }
             return [("Scanning", "\(items.count) photos found", items)]
         }
@@ -839,8 +884,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         item.tile.configure(entry, checked: plan != nil && selection.contains(entry.id))
         item.tile.onToggle = { [weak self] flags in self?.toggle(entry.id, flags) }
         let key = ThumbnailLoader.key(entry.thumbnail)
-        if let image = thumbnails.cached(key) { item.tile.setImage(image, placeholder: false) }
-        else {
+        if let image = thumbnails.cached(key) {
+            item.tile.setImage(image, placeholder: false)
+        } else {
             item.tile.setImage(nil, placeholder: true)
             if !thumbnails.hasFailed(key) {
                 item.operation = thumbnails.load(entry.thumbnail, key: key) { [weak item] image in
@@ -909,7 +955,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     @objc func resizeTiles() { tileWidth = CGFloat(sizeSlider.doubleValue); collection.collectionViewLayout?.invalidateLayout() }
     func zoom(by delta: CGFloat) { sizeSlider.doubleValue = Double(min(300, max(110, tileWidth + delta))); resizeTiles() }
 
-    var dateOptions: [CaptureDay?] = []   // popup items after "All Dates"
+    var dateOptions: [CaptureDay?] = []  // popup items after "All Dates"
 
     func rebuildDateFilter() {
         datePopup.removeAllItems(); dateOptions = []
@@ -922,8 +968,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
             }
             if let missing = counts[nil] { datePopup.addItem(withTitle: "No Capture Date  (\(missing))"); dateOptions.append(nil) }
         }
-        if let current = dateFilter, let index = dateOptions.firstIndex(where: { $0 == current }) { datePopup.selectItem(at: index + 1) }
-        else { dateFilter = nil; datePopup.selectItem(at: 0) }
+        if let current = dateFilter, let index = dateOptions.firstIndex(where: { $0 == current }) { datePopup.selectItem(at: index + 1) } else { dateFilter = nil; datePopup.selectItem(at: 0) }
     }
 
     // MARK: Refresh
@@ -945,11 +990,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         for control in [datePopup, typePopup, showImported, sizeSlider] as [NSControl] { control.isEnabled = filtersEnabled || control === sizeSlider }
 
         titleLabel.stringValue = source?.lastPathComponent ?? "Import Photos"
+        window?.title = source.map { "\($0.lastPathComponent) — Corvus" } ?? "Corvus"
         if let plan {
             let imported = plan.groups.filter { $0.status == .imported }.count
             let newGroups = plan.newGroups.count
-            countsLabel.stringValue = "\(plan.groups.count) photos (\(plan.files.count) files) · \(newGroups) new · \(imported) already imported"
-                + { let other = plan.ignored + plan.orphanSidecars.count; return other == 0 ? "" : " · \(other) other \(other == 1 ? "file" : "files") not imported" }()
+            countsLabel.stringValue =
+                "\(plan.groups.count) photos (\(plan.files.count) files) · \(newGroups) new · \(imported) already imported"
+                + {
+                    let other = plan.ignored + plan.orphanSidecars.count; return other == 0 ? "" : " · \(other) other \(other == 1 ? "file" : "files") not imported"
+                }()
                 + (plan.cachedGroups > 0 ? " · \(plan.cachedGroups) cached matches" : "")
         } else if let preliminary {
             countsLabel.stringValue = "\(preliminary.count) photos found · checking dates and duplicates…"
@@ -963,12 +1012,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
             emptyState.stringValue = "Looking for photos…"
         } else if plan != nil && sections.isEmpty {
             emptyState.stringValue = "No photos match these filters."
-        } else { emptyState.stringValue = "" }
+        } else {
+            emptyState.stringValue = ""
+        }
         emptyState.isHidden = emptyState.stringValue.isEmpty
 
         // Inspector state
         let editing = state != .importing
-        for control in [presetPopup, destinationButton, structurePopup, templateField, eventField, fallbackCheck, cardBehaviorPopup] as [NSControl] { control.isEnabled = editing }
+        for control in [presetPopup, destinationButton, structurePopup, templateField, eventField, fallbackCheck, cardBehaviorPopup, otherCardPopup] as [NSControl] { control.isEnabled = editing }
         templateField.isEditable = editing
         fallbackPicker.isEnabled = editing && fallbackCheck.state == .on
         // Show the date control whenever any importable photo needs one (files placed beside an
@@ -988,9 +1039,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     func updatePreview() {
         let root = URL(fileURLWithPath: settings.destination)
         if let organizeError {
-            previewLabel.stringValue = organizeError; previewLabel.textColor = .systemRed; return
+            previewLabel.stringValue = organizeError; previewLabel.textColor = Theme.bad; return
         }
-        previewLabel.textColor = .secondaryLabelColor
+        previewLabel.textColor = Theme.muted
         let base = "\(root.lastPathComponent)/"
         guard let plan else {
             let example = (try? Importer.folder(template: settings.folderTemplate, event: event.isEmpty ? "Event Name" : event, date: CaptureDay(year: 2026, month: 10, day: 4))) ?? ""
@@ -1004,8 +1055,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
             var counted = Set<String>()
             for file in plan.members(group) where plan.needsCopy(file) {
                 let key: String
-                if let beside = file.besideDirectory { key = String(beside.path.dropFirst(plan.root.path.count + 1)) + " (beside imported photo)" }
-                else { key = group.folder ?? "⚠︎ needs a capture date" }
+                if let beside = file.besideDirectory {
+                    key = String(beside.path.dropFirst(plan.root.path.count + 1)) + " (beside imported photo)"
+                } else {
+                    key = group.folder ?? "⚠︎ needs a capture date"
+                }
                 if counted.insert(key).inserted { folders[key, default: (0, 0)].groups += 1 }
                 folders[key, default: (0, 0)].files += 1
             }
@@ -1014,7 +1068,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         let lines = folders.keys.sorted().prefix(8).map { key in
             "\(key.hasPrefix("⚠︎") ? key : base + key.replacingOccurrences(of: " (beside", with: "/ (beside").appending(key.contains("(beside") ? "" : "/"))\n   \(folders[key]!.groups) \(folders[key]!.groups == 1 ? "photo" : "photos") · \(folders[key]!.files) \(folders[key]!.files == 1 ? "file" : "files")"
         }
-        previewLabel.stringValue = (selection.isEmpty ? "All new photos:\n" : "Selected photos:\n") + lines.joined(separator: "\n")
+        previewLabel.stringValue =
+            (selection.isEmpty ? "All new photos:\n" : "Selected photos:\n") + lines.joined(separator: "\n")
             + (folders.count > 8 ? "\n…and \(folders.count - 8) more folders" : "")
     }
 
@@ -1053,7 +1108,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         importSelectedButton.isEnabled = current && !chosen.isEmpty && plan.missingDates(in: chosen) == 0
         importAllButton.isEnabled = current && !newGroups.isEmpty
         let bytes = ByteCountFormatter.string(fromByteCount: Int64(plan.bytes(in: chosen)), countStyle: .file)
-        var text = chosen.isEmpty ? "No photos selected" : "\(chosen.count) selected · \(plan.fileCount(in: chosen)) files · \(bytes) to copy"
+        let fileCount = plan.fileCount(in: chosen)
+        var text = chosen.isEmpty ? "No photos selected" : "\(chosen.count) selected · \(fileCount) \(fileCount == 1 ? "file" : "files") · \(bytes) to copy"
         if hidden > 0 { text += " · \(hidden) hidden by filters won’t be imported" }
         let missing = plan.missingDates(in: chosen)
         if missing > 0 { text += " · \(missing) selected files need a capture date" }
@@ -1061,7 +1117,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         let undatedNotice = "no capture date and"
         if undated > 0 {
             status("\(undated) new \(undated == 1 ? "photo has" : "photos have") \(undatedNotice) \(undated == 1 ? "is" : "are") excluded until you choose a date in Import Options.")
-        } else if statusLabel.stringValue.contains(undatedNotice) { status("") }
+        } else if statusLabel.stringValue.contains(undatedNotice) {
+            status("")
+        }
         updatePreview()
     }
 
@@ -1075,28 +1133,31 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
     func startImport(_ groups: Set<Int>) {
         guard state == .idle, let plan, planIsCurrent, !groups.isEmpty else { return }
         guard plan.missingDates(in: groups) == 0 else {
-            showError(ImportError("Some selected photos have no capture date. Choose a fallback date in Import Options, or deselect them.")); return
+            showError("Photos need a capture date", ImportError("Some selected photos have no capture date. Choose a fallback date in Import Options, or deselect them.")); return
         }
         window?.makeFirstResponder(nil)
         let volume = ejectableVolume()
         let token = Cancellation(); importToken = token
         state = .importing
-        thumbnails.concurrency = 1   // leave card bandwidth for copying
+        thumbnails.concurrency = 1  // leave card bandwidth for copying
         progressBar.isIndeterminate = false; progressBar.doubleValue = 0
         status("Preparing to import \(groups.count) photos…")
         refresh(); sidebar.reloadData(); selectSidebarRow(); onStateChange?()
         let snapshot = settings
         let retainedSnapshot = cameraSnapshot
+        let importMetadataHelper = helper
         let cacheDirectory = verificationCacheDirectory
         DispatchQueue.global(qos: .userInitiated).async { [weak self, retainedSnapshot] in
             defer { withExtendedLifetime(retainedSnapshot) {} }
             do {
-                let result = try Importer.run(plan, selection: groups, cancellation: token, verificationCache: DuplicateVerificationCache(directory: cacheDirectory), progress: { update in
-                    DispatchQueue.main.async {
-                        self?.status(update.text)
-                        if let fraction = update.fraction { self?.progressBar.doubleValue = fraction }
-                    }
-                })
+                let result = try Importer.run(
+                    plan, selection: groups, cancellation: token, verificationCache: DuplicateVerificationCache(directory: cacheDirectory), metadataHelper: importMetadataHelper,
+                    progress: { update in
+                        DispatchQueue.main.async {
+                            self?.status(update.text)
+                            if let fraction = update.fraction { self?.progressBar.doubleValue = fraction }
+                        }
+                    })
                 DispatchQueue.main.async { self?.importFinished(result, plan: plan, settings: snapshot, volume: volume) }
             } catch {
                 DispatchQueue.main.async { self?.importFailed(error, plan: plan, groups: groups) }
@@ -1108,7 +1169,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         if scanSource == plan.source {
             self.plan = plan.applying(result.outcomes)
             selection = self.plan!.newGroups.intersection(selection)
-        } else { self.plan = nil; selection = [] }
+        } else {
+            self.plan = nil; selection = []
+        }
         thumbnails.concurrency = ThumbnailLoader.defaultConcurrency
         var detail = "\(result.copied) new \(result.copied == 1 ? "file" : "files") copied and verified from \(result.groups) \(result.groups == 1 ? "photo" : "photos")."
         if result.skipped > 0 { detail += " \(result.skipped) already present and verified." }
@@ -1118,9 +1181,17 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
             if snapshot.editorAvailable {
                 let configuration = NSWorkspace.OpenConfiguration(); configuration.activates = true
                 NSWorkspace.shared.open(result.folders, withApplicationAt: app, configuration: configuration) { _, error in
-                    if let error { DispatchQueue.main.async { self.showError(ImportError("Import succeeded, but \(snapshot.editorName) could not open the folders: \(error.localizedDescription)")) } }
+                    if let error {
+                        DispatchQueue.main.async {
+                            self.showError(
+                                "Couldn’t open the folders in \(snapshot.editorName)",
+                                ImportError("Import succeeded, but \(snapshot.editorName) could not open the folders: \(error.localizedDescription)"))
+                        }
+                    }
                 }
-            } else { detail += "\n\n\(snapshot.editorName) was not found, so folders were not opened." }
+            } else {
+                detail += "\n\n\(snapshot.editorName) was not found, so folders were not opened."
+            }
         }
         status("Import complete: \(result.copied) copied and verified.")
         // Never eject a card that still holds new photos the user has not imported.
@@ -1135,7 +1206,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
                 do { try NSWorkspace.shared.unmountAndEjectDevice(at: volume) } catch { failure = error }
                 DispatchQueue.main.async {
                     self.state = .idle; self.refresh(); self.onStateChange?()
-                    self.showResult(result, detail: detail + (failure.map { "\n\nThe card could not be ejected: \($0.localizedDescription) Eject it in Finder." } ?? "\n\nThe card was safely ejected."))
+                    self.showResult(
+                        result, detail: detail + (failure.map { "\n\nThe card could not be ejected: \($0.localizedDescription) Eject it in Finder." } ?? "\n\nThe card was safely ejected."))
                     self.finishWork()
                 }
             }
@@ -1163,8 +1235,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         if canRescan { alert.addButton(withTitle: "Scan Again") }
         if failure != nil { alert.addButton(withTitle: "Show Report") }
         present(alert) { answer in
-            if canRescan && answer == .alertSecondButtonReturn { self.startScan() }
-            else if let failure, answer == (canRescan ? .alertThirdButtonReturn : .alertSecondButtonReturn) {
+            if canRescan && answer == .alertSecondButtonReturn {
+                self.startScan()
+            } else if let failure, answer == (canRescan ? .alertThirdButtonReturn : .alertSecondButtonReturn) {
                 NSWorkspace.shared.activateFileViewerSelecting([failure.receipt])
             }
             self.finishWork()
@@ -1186,15 +1259,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
 
     /// Attach alerts to the window when it is visible; otherwise (window closed, app in the menu bar) show them as panels.
     func present(_ alert: NSAlert, completion: @escaping (NSApplication.ModalResponse) -> Void = { _ in }) {
-        if let window, window.isVisible, window.attachedSheet == nil { alert.beginSheetModal(for: window, completionHandler: completion) }
-        else { completion(alert.runModal()) }
+        if let window, window.isVisible, window.attachedSheet == nil { alert.beginSheetModal(for: window, completionHandler: completion) } else { completion(alert.runModal()) }
     }
 
     /// Only a detected camera card that does not hold the destination may be ejected.
     func ejectableVolume() -> URL? {
         guard let source, cards.contains(source),
-              let volume = try? source.resourceValues(forKeys: [.volumeURLKey]).volume,
-              volume.path.hasPrefix("/Volumes/"), !settings.destination.hasPrefix(volume.path + "/"), settings.destination != volume.path else { return nil }
+            let volume = try? source.resourceValues(forKeys: [.volumeURLKey]).volume,
+            volume.path.hasPrefix("/Volumes/"), !settings.destination.hasPrefix(volume.path + "/"), settings.destination != volume.path
+        else { return nil }
         return volume
     }
 
@@ -1206,8 +1279,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSCollec
         }
     }
 
-    func showError(_ error: Error) {
-        let alert = NSAlert(); alert.alertStyle = .warning; alert.messageText = "Andermic Photo Importer"; alert.informativeText = error.localizedDescription
+    /// A warning sheet titled by what failed.
+    func showError(_ title: String, _ error: Error) {
+        let alert = NSAlert(); alert.alertStyle = .warning; alert.messageText = title; alert.informativeText = error.localizedDescription
         present(alert)
     }
 

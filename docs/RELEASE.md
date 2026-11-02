@@ -47,8 +47,8 @@ SIGNING_IDENTITY='Developer ID Application: Your Verified Name (TEAMID)' ./build
 The build signs the bundled interpreter and compiled extensions, then the app, with hardened runtime and secure timestamps. Notarization has not been attempted. Keep credentials in Keychain, never Git or shell history:
 
 ```sh
-xcrun notarytool store-credentials andermic-notary
-NOTARY_PROFILE=andermic-notary ./scripts/notarize.sh
+xcrun notarytool store-credentials senex-notary
+NOTARY_PROFILE=senex-notary ./scripts/notarize.sh
 ./scripts/verify-package.sh
 ```
 
