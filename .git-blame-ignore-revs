@@ -1,3 +1,0 @@
-# Formatting-only commits. Use with: git config blame.ignoreRevsFile .git-blame-ignore-revs
-# Format Swift sources with swift-format (house-style config, 2026-10-30)
-08c1b1c3babde38eecb8cfb69281a9f5e405e8ee

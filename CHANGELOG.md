@@ -1,8 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.2.0-alpha.1 — source preview (2026-11-02)
 
-- Renamed Corvus (SENEX Corvus). Settings move to `Application Support/Corvus/`; earlier settings are adopted once and left in place.
+Build locally on Apple silicon or Intel; no prebuilt app downloads or Apple notarization are included.
+
+- Renamed Corvus (SENEX Corvus), with the new bundle ID `com.senexapps.corvus`, so macOS treats it as a new app. See "Moving from Andermic Photo Importer" in the README. Settings move to `Application Support/Corvus/`; earlier settings are adopted once and left in place.
 - SENEX family design shared with Pictor: dark appearance, star-blue accent, capsule status badges, errors titled by what failed, and a Corvus constellation icon. Third-Party Notices moved to the app menu.
 - Starts in the menu bar by default, with an optional window on launch and a shortcut to Login Items. Closing the window keeps work running.
 - USB camera import through Image Capture, with verified staging of originals.
@@ -11,8 +13,9 @@
 - A 30-day preview verification cache makes repeat scans fast. Imports still verify every file in full; File > Full Verification bypasses the cache.
 - Repeat previews reuse verified capture dates and cached checks for unselected previous imports; the destination is listed in one pass.
 - Optionally treat copies from the camera's other card as already imported. USB camera previews read originals on demand, and abandoned camera snapshots are cleaned up at launch.
+- Bundled ExifTool updated to 13.60.
 
-Validation: 207 synthetic safety checks, the synthetic memory exercise, and build/package verification.
+Validation: 261 synthetic safety checks, the synthetic memory exercise, and build/package verification; both architectures run in hosted CI. The synthetic GUI exercise passed on Intel and has not run on Apple silicon. VoiceOver, physical card reinsertion, and real-camera qualification were not run.
 
 ## 0.1.0-alpha.2 — source preview (2026-10-05)
 
