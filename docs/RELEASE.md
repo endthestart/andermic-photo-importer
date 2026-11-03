@@ -14,8 +14,8 @@ Before a source preview:
 For example:
 
 ```sh
-git tag v0.1.0-alpha.2
-git push origin v0.1.0-alpha.2
+git tag v0.2.0-alpha.1
+git push origin v0.2.0-alpha.1
 ```
 
 The tagged workflow builds and verifies both architectures, then creates a **draft source prerelease without binary assets**. Review the draft and publish it explicitly. GitHub exposes source archives for the tagged commit. Failed builds prevent draft creation; the workflow refuses to update an already published release. Do not move release tags or attach the development app ZIPs to a source-only release.

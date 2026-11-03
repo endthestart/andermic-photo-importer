@@ -212,3 +212,11 @@ The metadata stage of a warm real-card scan remained a measured bottleneck after
 The complete `./scripts/ui-exercise.sh` passed with no failures on an Intel Mac Pro running macOS 15.7.4, on the renamed app with the SENEX family design. All 89 imported files matched a synthetic source byte for byte, and no real card or camera was attached. Screenshots in [docs/screenshots](screenshots/) come from this run at 1× (1300 × 780), because this Mac's display is not Retina.
 
 The test app now saves its own windows, because `screencapture` needs Screen Recording permission that the exercise's host app does not have here. A locked screen still stops the exercise: the app cannot come to the front. VoiceOver and a physical card reinsertion were not run.
+
+## Source preview 0.2.0-alpha.1 preparation (2026-11-02)
+
+On `main` after PR #6 plus the release changes, on the Intel Mac Pro: `./test.sh` (261 checks), `./build.sh`, `./scripts/package.sh`, `./scripts/verify-package.sh`, `./scripts/performance-exercise.sh`, and the format lint all pass. Hosted CI builds and tests both architectures. `docs/DESIGN-TOKENS.md` is byte-identical to Pictor's.
+
+gitleaks 8.30.1 found no leaks in the full history. A search of tracked files and of every line added since `v0.1.0-alpha.2` for home and volume paths found one local backup path, in the audit. It is gone from the current text and remains in the history of `317486b`. Tracked images are synthetic fixtures and screenshots of synthetic media.
+
+The GUI exercise last passed on the tree of PR #5. It was not rerun after PR #6, which moved core code between files without changing it, because the screen was locked. VoiceOver, physical card reinsertion, real cameras, and a GUI run on Apple silicon remain open. No real card or personal photo was used.

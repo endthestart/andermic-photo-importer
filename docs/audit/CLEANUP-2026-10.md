@@ -2,6 +2,8 @@
 
 Scope: the full checklist in `~/Development/plan/cleanup-playbook.md`, plus design, UI/UX and roadmap. The audit covered branch `claude/corvus-pictor-design-0851ec` on 2026-10-30, after the Corvus rename and SENEX design commit (`adaea03`) and the merge of `origin/main` at `0f5f055`.
 
+Commit hashes below are on that branch and visible through PR #4. It landed on `main` as the single squash `317486b`, so they are not in `main`'s history.
+
 Host: Mac Pro, Intel Xeon W-3245 (16 cores), 192 GB, macOS 15.7.4. Tools: Swift 6.2.4 (swift-driver 1.127.15), swift-format 6.2.3, Apple LLVM 17 llvm-cov, gitleaks 8.30.1. These tools are **not installed**, so their checks were done by hand or skipped: periphery, swiftlint, shellcheck, actionlint, git-sizer, lychee, jscpd, scc/tokei/lizard. Read-only tools ran at `nice 19`. Every number below was measured; none is estimated. Fixtures were synthetic only. No real card, camera or personal photo was opened, and the Hidden export was not touched.
 
 The audit kept no caches. The 3.8 GB scan fixtures, the coverage build, the idle-probe app and the aborted UI-exercise output were all deleted.
@@ -15,7 +17,7 @@ The audit kept no caches. The 3.8 GB scan fixtures, the coverage build, the idle
 | CI | The performance exercise did not compile after the theme change, and CI runs it. | Fixed: `7a2dbde`. |
 | Docs | The CHANGELOG stopped at Oct 5, the ROADMAP named the retired Aperture A branding, and build variables were undocumented. | Fixed: `c6b74be`, `11f8a85`. |
 | Storage | A passing UI exercise leaves 1.8 GB of fixtures. The main checkout's `build/` is 2.4 GB. | Fixed going forward (`344b221`). The existing folders are owner question 4. |
-| Size | `MainWindow.swift` (1,216 lines) and `ImportCore.swift` (1,005 lines) break the 300-line rule. | Owner question 7; not refactored during cleanup. |
+| Size | `MainWindow.swift` (1,216 lines) and `ImportCore.swift` (1,005 lines) break the 300-line rule. | Owner question 7; split after cleanup in PR #5 and PR #6. |
 | Dead code | None found. The 19 candidates are all framework callbacks. | — |
 | Secrets | gitleaks: 15 commits, no leaks. | — |
 
@@ -88,12 +90,12 @@ The audit kept no caches. The 3.8 GB scan fixtures, the coverage build, the idle
 - **UI exercise:** left about 1.8 GB of fixtures after each pass. It now keeps only its logs after a pass (`344b221`; 40 KB measured); a failed run still keeps everything for inspection.
 - **Workflows:** both are live (`ci.yml` on pushes and PRs, `release.yml` on tags). Neither is dead.
 
-## 8. Complexity hotspots (not refactored)
+## 8. Complexity hotspots
 
 | File or function | Size | Suggestion |
 |---|---|---|
-| `Source/App/MainWindow.swift` | 1,216 lines | Split into sidebar, grid, inspector and import-flow controllers |
-| `Source/Core/ImportCore.swift` | 1,005 lines | Split into hashing, planning, copy/publish and reports |
+| `Source/App/MainWindow.swift` | 1,216 lines | Done: split into extensions by area (PR #5) |
+| `Source/Core/ImportCore.swift` | 1,005 lines | Done: split into files by area (PR #6) |
 | `UIAutomation.tick` | 207-line function | Table-driven command handlers |
 | `Importer.run` | 141-line function | Extract per-group copy and verification steps |
 | `Tests/main.swift` | 776 lines | Split by area (migration, grouping, cache, camera) |
@@ -179,9 +181,8 @@ Measured on this Mac Pro with the current build (optimized, synthetic data):
 - **Next, in order:**
   1. Run the physical card reinsertion on the current build.
   2. Install the renamed app in place of the old one (README, "Moving from Andermic Photo Importer").
-  3. Push this branch and open a PR.
-  4. Complete the qualification list in `docs/ROADMAP.md` (real-camera fixtures, older macOS, clean install, Developer ID and notarization).
-  5. The USB remote-reader design from `docs/PERFORMANCE.md`.
+  3. Complete the qualification list in `docs/ROADMAP.md` (real-camera fixtures, older macOS, clean install, Developer ID and notarization).
+  4. The USB remote-reader design from `docs/PERFORMANCE.md`.
 - **Stale (fixed in `c6b74be`):** the branding line, and shipped work missing from the first-release list.
 - **Still accurate:** the later-update list (history, filename templates, second copy, delete after import) and the deferrals (richer menu-bar status, Linux, culling).
 
@@ -192,8 +193,8 @@ Each comes with a recommendation; the PM sends them one at a time.
 1. **Bundle ID:** answered. The owner registered senexapps.com, and Corvus now uses `com.senexapps.corvus`, matching Pictor.
 2. **Push and PRs:** the owner approved pushing the branch for a CI build. Opening the PRs is asked separately.
 3. **Background scan heat:** handed over. The owner's Codex session (branch `codex/sd-card-metadata-cache`) is working on import performance, so this branch changes no scan code. The options below go to that work. (a) run scans the user didn't start (background card insertion, launch scans) at `.utility`; (b) confirm duplicates by comparing the two files byte for byte instead of hashing both, which avoids most SHA-256 work; (c) leave as is. Recommendation: first confirm whether the fans still spin with the current build, which has the cache; if they do, (a). (b) changes import safety and needs its own ADR.
-4. **Disk space in the main checkout:** answered. `build/ui-exercise` and `build/module-cache` were deleted (`build/` went from 2.4 GB to 171 MB). The app backup was copied to `/Volumes/storage/backup/Development/corvus/installed-backup-20261005-185204/`, its 1,791 files checked by SHA-256, and the local copy moved to the Trash.
+4. **Disk space in the main checkout:** answered. `build/ui-exercise` and `build/module-cache` were deleted (`build/` went from 2.4 GB to 171 MB). The app backup was copied to external storage, its 1,791 files checked by SHA-256, and the local copy moved to the Trash.
 5. **ExifTool 13.59 → 13.60:** answered. The owner chose the upgrade. Both are development releases, and the latest production release (13.55) lacks 13.59's security update. 13.60 is pinned by the SHA-256 published on exiftool.org, whose download link points to SourceForge.
 6. **Merged branches:** answered. Both were deleted locally and on GitHub; their trees matched PRs #1 and #2. Tips: `feature/core-first-release` 280974e549da, `feature/menu-bar-lifecycle` 472d491f7ab9.
-7. **Split `MainWindow.swift` and `ImportCore.swift`:** the owner chose one file per PR. `MainWindow.swift` goes first, and `ImportCore.swift` waits for the Codex import branch to merge.
-8. **Formatter:** answered. The owner approved the house-style `.swift-format`. The formatting-only commit `08c1b1c` is listed in `.git-blame-ignore-revs`, and CI runs `swift-format lint --strict` (`c34915e`).
+7. **Split `MainWindow.swift` and `ImportCore.swift`:** answered and done. The owner chose one file per PR: `MainWindow.swift` in PR #5, then `ImportCore.swift` in PR #6 once the Codex import work was on `main`.
+8. **Formatter:** answered. The owner approved the house-style `.swift-format`, and CI runs `swift-format lint --strict` (`c34915e`). The formatting-only commit `08c1b1c` landed inside the PR #4 squash, so there is no separate commit for blame to ignore.
