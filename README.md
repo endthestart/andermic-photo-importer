@@ -21,8 +21,8 @@ xcode-select --install
 After installation finishes:
 
 ```sh
-git clone https://github.com/endthestart/andermic-photo-importer.git
-cd andermic-photo-importer
+git clone https://github.com/endthestart/senex-corvus.git
+cd senex-corvus
 ./build.sh
 open dist/Corvus.app
 ```
@@ -98,7 +98,7 @@ Tests use disposable synthetic originals. Package verification checks signatures
 - Pushes to `main`, pull requests, and manual runs build, test, and verify packages on Apple silicon and Intel runners.
 - Version tags build and verify both architectures, then create a **draft source prerelease**. Publishing is manual. GitHub provides the tagged source ZIP and tar archive; no app binaries are attached.
 - [Release instructions](docs/RELEASE.md) cover source previews now and Developer ID signing/notarization later.
-- Report reproducible problems in [GitHub Issues](https://github.com/endthestart/andermic-photo-importer/issues). Include macOS version, architecture, file formats, and the steps; remove personal paths and photo metadata from reports before sharing. This is an early preview with no support or compatibility guarantee.
+- Report reproducible problems in [GitHub Issues](https://github.com/endthestart/senex-corvus/issues). Include macOS version, architecture, file formats, and the steps; remove personal paths and photo metadata from reports before sharing. This is an early preview with no support or compatibility guarantee.
 
 Product behavior: [specification](docs/SPEC.md). Decisions: [ADR-0001](docs/decisions/0001-local-importer-and-release-foundation.md) to [ADR-0014](docs/decisions/0014-other-card-copies-and-on-demand-camera-reads.md). Look: [SENEX family design tokens](docs/DESIGN-TOKENS.md), shared with SENEX Pictor. Evidence: [validation](docs/VALIDATION.md).
 
