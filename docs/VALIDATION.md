@@ -86,7 +86,7 @@ The new tests reproduce both on the previous engine. The root-level import was r
 
 The initial prototype passed 32 synthetic safety checks and a full native GUI import/repeat scan on an Apple silicon Mac with macOS 27.2 and Homebrew ExifTool 13.55. The repository foundation passed 39 checks, including bounded preview reads, deliberate sample collisions, unsampled source changes, and large renamed duplicates. A mounted Nikon card was detected, but real photos were neither imported nor ejected.
 
-Hosted build results are in [GitHub Actions](https://github.com/endthestart/andermic-photo-importer/actions). Both architectures must pass before a tagged build can create a draft release.
+Hosted build results are in [GitHub Actions](https://github.com/endthestart/senex-corvus/actions). Both architectures must pass before a tagged build can create a draft release.
 
 ## Source preview preparation (2026-10-05)
 

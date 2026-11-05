@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0-alpha.1 — source preview (2026-11-02)
+## 0.2.0-alpha.1 — source preview (2026-11-05)
 
 Build locally on Apple silicon or Intel; no prebuilt app downloads or Apple notarization are included.
 

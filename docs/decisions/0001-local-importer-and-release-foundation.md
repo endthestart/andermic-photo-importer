@@ -8,7 +8,7 @@ The owner wants a native GUI for a filesystem-based photography workflow, config
 
 ## Decision
 
-- Repository: `endthestart/andermic-photo-importer`, private initially.
+- Repository: `endthestart/andermic-photo-importer`, private initially. Renamed `endthestart/senex-corvus` on 2026-11-05.
 - Product: Andermic Photo Importer; bundle ID: `net.andermic.photoimporter`. Renamed Corvus with bundle ID `com.senexapps.corvus` on 2026-10-30; see [SPEC](../SPEC.md) and the [design tokens](../DESIGN-TOKENS.md).
 - Keep the original prototype's `Photo Import` Application Support directory to preserve local settings across the name change (superseded by ADR-0005, which migrates them once to `Andermic Photo Importer`).
 - Native AppKit/system Swift frameworks; ExifTool remains an explicit separately installed metadata dependency (superseded by ADR-0004, which bundles it).
